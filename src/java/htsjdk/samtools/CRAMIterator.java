@@ -165,6 +165,7 @@ public class CRAMIterator implements SAMRecordIterator {
 
         if (container.sequenceId == SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX) {
             refs = new byte[]{};
+            prevSeqId = -1;
         } else if (container.sequenceId == -2) {
             refs = null;
             prevSeqId = -2;
