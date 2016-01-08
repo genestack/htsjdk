@@ -46,8 +46,9 @@ import java.util.TreeSet;
 
 @SuppressWarnings("UnusedDeclaration")
 public class CRAMFileWriter extends SAMFileWriterImpl {
-    private static final int REF_SEQ_INDEX_NOT_INITIALIZED = -2;
+    private static final int REF_SEQ_INDEX_NOT_INITIALIZED = -3;
     static int DEFAULT_RECORDS_PER_SLICE = 10000;
+    static int SWITCH_TO_MULTIREF_IF_MORE_THAN = 1000;
     private static final int DEFAULT_SLICES_PER_CONTAINER = 1;
     private static final Version cramVersion = CramVersions.CRAM_v2_1;
 
@@ -152,7 +153,30 @@ public class CRAMFileWriter extends SAMFileWriterImpl {
      * @return true if the current container should be flushed and the following records should go into a new container; false otherwise.
      */
     protected boolean shouldFlushContainer(final SAMRecord nextRecord) {
-        return samRecords.size() >= containerSize || refSeqIndex != REF_SEQ_INDEX_NOT_INITIALIZED && refSeqIndex != nextRecord.getReferenceIndex();
+        if (samRecords.isEmpty()) {
+            refSeqIndex = nextRecord.getReferenceIndex();
+            return false;
+        }
+
+        if (samRecords.size() >= containerSize) {
+            return true;
+        }
+
+        if (samFileHeader.getSortOrder() != SAMFileHeader.SortOrder.coordinate || refSeqIndex == Slice.MULTI_REFERENCE) {
+            return false;
+        }
+
+        final boolean sameRef = (refSeqIndex == nextRecord.getReferenceIndex());
+        if (sameRef) {
+            return false;
+        }
+
+        if (samRecords.size() > SWITCH_TO_MULTIREF_IF_MORE_THAN) {
+            refSeqIndex = Slice.MULTI_REFERENCE;
+            return false;
+        } else {
+            return true;
+        }
     }
 
     private static void updateTracks(final List<SAMRecord> samRecords, final ReferenceTracks tracks) {
@@ -198,11 +222,21 @@ public class CRAMFileWriter extends SAMFileWriterImpl {
 
         final byte[] refs;
         String refSeqName = null;
-        if (refSeqIndex == SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX) refs = new byte[0];
-        else {
-            final SAMSequenceRecord sequence = samFileHeader.getSequence(refSeqIndex);
-            refs = source.getReferenceBases(sequence, true);
-            refSeqName = sequence.getSequenceName();
+        switch (refSeqIndex) {
+            case Slice.MULTI_REFERENCE:
+                if (preservation != null && preservation.areReferenceTracksRequired()) {
+                    throw new SAMException("Cannot apply reference-based lossy compression on non-coordinate sorted reads.");
+                }
+                refs = new byte[0];
+                break;
+            case Slice.UNMAPPED_OR_NO_REFERENCE:
+                refs = new byte[0];
+                break;
+            default:
+                final SAMSequenceRecord sequence = samFileHeader.getSequence(refSeqIndex);
+                refs = source.getReferenceBases(sequence, true);
+                refSeqName = sequence.getSequenceName();
+                break;
         }
 
         int start = SAMRecord.NO_ALIGNMENT_START;
@@ -236,6 +270,10 @@ public class CRAMFileWriter extends SAMFileWriterImpl {
         int index = 0;
         int prevAlStart = start;
         for (final SAMRecord samRecord : samRecords) {
+            if (samRecord.getReferenceIndex() != SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX && refSeqIndex != samRecord.getReferenceIndex()) {
+                // this may load all ref sequences into memory:
+                sam2CramRecordFactory.setRefBases(source.getReferenceBases(samFileHeader.getSequence(samRecord.getReferenceIndex()), true));
+            }
             final CramCompressionRecord cramRecord = sam2CramRecordFactory.createCramRecord(samRecord);
             cramRecord.index = ++index;
             cramRecord.alignmentDelta = samRecord.getAlignmentStart() - prevAlStart;
@@ -367,6 +405,7 @@ public class CRAMFileWriter extends SAMFileWriterImpl {
             }
         }
         samRecords.clear();
+        refSeqIndex = REF_SEQ_INDEX_NOT_INITIALIZED;
     }
 
     /**
@@ -411,10 +450,15 @@ public class CRAMFileWriter extends SAMFileWriterImpl {
      * @param samRecordReferenceIndex index of the new reference sequence
      */
     private void updateReferenceContext(final int samRecordReferenceIndex) {
+        if (refSeqIndex == Slice.MULTI_REFERENCE) {
+            return;
+        }
+
         if (refSeqIndex == REF_SEQ_INDEX_NOT_INITIALIZED) {
             refSeqIndex = samRecordReferenceIndex;
-        } else
-            if (refSeqIndex != samRecordReferenceIndex) refSeqIndex = samRecordReferenceIndex;
+        } else if (refSeqIndex != samRecordReferenceIndex) {
+            refSeqIndex = Slice.MULTI_REFERENCE;
+        }
     }
 
     @Override
