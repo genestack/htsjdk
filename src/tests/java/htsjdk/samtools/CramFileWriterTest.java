@@ -231,4 +231,24 @@ public class CramFileWriterTest {
         Assert.assertEquals(records.size(), i);
     }
 
+    @Test
+    public void testCRAMQuerySort() throws IOException {
+        final File input = new File("c:/temp/", "count_reads.cram");
+        final File reference = new File("c:/temp/", "count_reads.fasta");
+        final File outputFile = File.createTempFile("tmp.", ".cram");
+
+        try (final SamReader reader = SamReaderFactory.makeDefault().referenceSequence(reference).open(input);
+             final SAMFileWriter writer = new SAMFileWriterFactory().makeWriter(reader.getFileHeader().clone(), false, outputFile, reference)) {
+            for (SAMRecord rec : reader) {
+                    writer.addAlignment(rec);
+            }
+        }
+
+        try (final SamReader outReader = SamReaderFactory.makeDefault().referenceSequence(reference).open(outputFile)) {
+            for (final SAMRecord rec : outReader) {
+            }
+        }
+
+    }
+
 }
