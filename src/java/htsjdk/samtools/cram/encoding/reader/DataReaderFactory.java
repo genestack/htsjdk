@@ -30,6 +30,7 @@ import htsjdk.samtools.cram.structure.EncodingID;
 import htsjdk.samtools.cram.structure.EncodingKey;
 import htsjdk.samtools.cram.structure.EncodingParams;
 import htsjdk.samtools.cram.structure.ReadTag;
+import htsjdk.samtools.util.Log;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -39,6 +40,7 @@ import java.util.TreeMap;
 
 @SuppressWarnings("unchecked")
 public class DataReaderFactory {
+    private static Log log = Log.getInstance(DataReaderFactory.class);
 
     private final static boolean collectStats = false;
 
@@ -56,10 +58,11 @@ public class DataReaderFactory {
                 final EncodingKey key = dataSeries.key();
                 final DataSeriesType type = dataSeries.type();
                 if (header.encodingMap.get(key) == null) {
-                    System.err.println("Encoding not found for key: " + key);
+                    log.debug("Encoding not found for key: " + key);
+                } else {
+                    field.set(reader,
+                            createReader(type, header.encodingMap.get(key), bitInputStream, inputMap));
                 }
-                field.set(reader,
-                        createReader(type, header.encodingMap.get(key), bitInputStream, inputMap));
             }
 
             if (field.isAnnotationPresent(DataSeriesMap.class)) {
