@@ -68,7 +68,7 @@ public class RefSeqIdReader extends AbstractReader {
 	/**
 	 * Detected sequence spans
 	 */
-	private Map<Integer, Span> spans = new HashMap<Integer, Span>();
+	private Map<Integer, AlignmentSpan> spans = new HashMap<Integer, AlignmentSpan>();
 
 	public RefSeqIdReader(int seqId, int alignmentStart) {
 		super();
@@ -76,27 +76,8 @@ public class RefSeqIdReader extends AbstractReader {
 		this.alignmentStart = alignmentStart;
 	}
 
-	public Map<Integer, Span> getReferenceSpans() {
+	public Map<Integer, AlignmentSpan> getReferenceSpans() {
 		return spans;
-	}
-
-	public static class Span {
-		public int start, span;
-
-		Span(int start, int span) {
-			this.start = start;
-			this.span = span;
-		}
-
-		void add(int start, int span) {
-			if (this.start > start) {
-				this.span = Math.max(this.start + this.span, start + span) - start;
-				this.start = start;
-			} else if (this.start < start) {
-				this.span = Math.max(this.start + this.span, start + span) - this.start;
-			} else
-				this.span = Math.max(this.span, span);
-		}
 	}
 
 	public void read() throws IOException {
@@ -244,7 +225,7 @@ public class RefSeqIdReader extends AbstractReader {
 		}
 
 		if (!spans.containsKey(cramRecord.sequenceId)) {
-			spans.put(cramRecord.sequenceId, new Span(alignmentStart, cramRecord.readLength));
+			spans.put(cramRecord.sequenceId, new AlignmentSpan(alignmentStart, cramRecord.readLength));
 		} else
 			spans.get(cramRecord.sequenceId).add(alignmentStart, cramRecord.readLength);
 	}
