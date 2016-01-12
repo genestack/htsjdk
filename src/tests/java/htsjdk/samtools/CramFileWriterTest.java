@@ -233,8 +233,8 @@ public class CramFileWriterTest {
 
     @Test
     public void testCRAMQuerySort() throws IOException {
-        final File input = new File("c:/temp/", "count_reads.cram");
-        final File reference = new File("c:/temp/", "count_reads.fasta");
+        final File input = new File("testdata/htsjdk/samtools/count_reads.cram");
+        final File reference = new File("testdata/htsjdk/samtools/count_reads.fasta");
         final File outputFile = File.createTempFile("tmp.", ".cram");
 
         try (final SamReader reader = SamReaderFactory.makeDefault().referenceSequence(reference).open(input);
