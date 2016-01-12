@@ -24,6 +24,7 @@ import htsjdk.samtools.ValidationStringency;
 import htsjdk.samtools.cram.encoding.reader.CramRecordReader;
 import htsjdk.samtools.cram.encoding.reader.DataReaderFactory;
 import htsjdk.samtools.cram.encoding.reader.DataReaderFactory.DataReaderWithStats;
+import htsjdk.samtools.cram.encoding.reader.RefSeqIdReader;
 import htsjdk.samtools.cram.io.DefaultBitInputStream;
 import htsjdk.samtools.cram.structure.CompressionHeader;
 import htsjdk.samtools.cram.structure.Container;
@@ -33,11 +34,14 @@ import htsjdk.samtools.util.Log;
 import htsjdk.samtools.util.Log.LogLevel;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 public class ContainerParser {
@@ -54,11 +58,13 @@ public class ContainerParser {
                                                   ArrayList<CramCompressionRecord> records, ValidationStringency validationStringency) throws IllegalArgumentException,
             IllegalAccessException {
         final long time1 = System.nanoTime();
-        if (records == null)
+        if (records == null) {
             records = new ArrayList<CramCompressionRecord>(container.nofRecords);
+        }
 
-        for (final Slice slice : container.slices)
+        for (final Slice slice : container.slices) {
             records.addAll(getRecords(slice, container.header, validationStringency));
+        }
 
         final long time2 = System.nanoTime();
 
@@ -71,6 +77,45 @@ public class ContainerParser {
         }
 
         return records;
+    }
+
+    public Set<Integer> getReferences(final Container container) throws IOException, IllegalAccessException {
+        Set<Integer> set = new HashSet<>();
+        for (final Slice slice : container.slices) {
+            set.addAll(getReferences(slice, container.header));
+        }
+        return set;
+    }
+
+    Set<Integer> getReferences(final Slice slice, final CompressionHeader header) throws IllegalAccessException, IOException {
+        Set<Integer> set = new HashSet<>();
+        switch (slice.sequenceId) {
+            case Slice.UNMAPPED_OR_NO_REFERENCE:
+                set.add(Slice.UNMAPPED_OR_NO_REFERENCE);
+                break;
+            case Slice.MULTI_REFERENCE:
+                final DataReaderFactory dataReaderFactory = new DataReaderFactory();
+                final Map<Integer, InputStream> inputMap = new HashMap<Integer, InputStream>();
+                for (final Integer exId : slice.external.keySet()) {
+                    inputMap.put(exId, new ByteArrayInputStream(slice.external.get(exId)
+                            .getRawContent()));
+                }
+
+                final RefSeqIdReader reader = new RefSeqIdReader(Slice.MULTI_REFERENCE, slice.alignmentStart);
+                dataReaderFactory.buildReader(reader, new DefaultBitInputStream(
+                                new ByteArrayInputStream(slice.coreBlock.getRawContent())),
+                        inputMap, header, slice.sequenceId);
+
+                for (int i = 0; i < slice.nofRecords; i++) {
+                    reader.read();
+                }
+                set.addAll(reader.getReferenceSpans().keySet());
+                break;
+            default:
+                set.add(slice.sequenceId);
+                break;
+        }
+        return set;
     }
 
     ArrayList<CramCompressionRecord> getRecords(ArrayList<CramCompressionRecord> records,
@@ -103,8 +148,9 @@ public class ContainerParser {
                         new ByteArrayInputStream(slice.coreBlock.getRawContent())),
                 inputMap, header, slice.sequenceId);
 
-        if (records == null)
+        if (records == null) {
             records = new ArrayList<CramCompressionRecord>(slice.nofRecords);
+        }
 
         long readNanos = 0;
         int prevStart = slice.alignmentStart;
@@ -121,9 +167,9 @@ public class ContainerParser {
                 record.sequenceName = seqName;
                 record.sequenceId = slice.sequenceId;
             } else {
-                if (record.sequenceId == SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX)
+                if (record.sequenceId == SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX) {
                     record.sequenceName = SAMRecord.NO_ALIGNMENT_REFERENCE_NAME;
-                else {
+                } else {
                     record.sequenceName = samFileHeader.getSequence(record.sequenceId)
                             .getSequenceName();
                 }
@@ -144,8 +190,9 @@ public class ContainerParser {
             if (!nanosecondsMap.containsKey(key)) {
                 nanosecondsMap.put(key, 0L);
                 value = 0;
-            } else
+            } else {
                 value = nanosecondsMap.get(key);
+            }
             nanosecondsMap.put(key, value + statMap.get(key).nanos);
         }
         return records;
