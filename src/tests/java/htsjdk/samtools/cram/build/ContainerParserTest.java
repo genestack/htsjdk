@@ -2,6 +2,7 @@ package htsjdk.samtools.cram.build;
 
 import htsjdk.samtools.SAMFileHeader;
 import htsjdk.samtools.SAMRecord;
+import htsjdk.samtools.cram.encoding.reader.AlignmentSpan;
 import htsjdk.samtools.cram.structure.Container;
 import htsjdk.samtools.cram.structure.CramCompressionRecord;
 import htsjdk.samtools.cram.structure.Slice;
@@ -12,6 +13,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
@@ -43,10 +45,10 @@ public class ContainerParserTest {
         Assert.assertEquals(container.sequenceId, 0);
 
         ContainerParser parser = new ContainerParser(samFileHeader);
-        final Set<Integer> referenceSet = parser.getReferences(container);
+        final Map<Integer, AlignmentSpan> referenceSet = parser.getReferences(container);
         Assert.assertNotNull(referenceSet);
         Assert.assertEquals(referenceSet.size(), 1);
-        Assert.assertEquals(referenceSet.iterator().next().intValue(), 0);
+        Assert.assertTrue(referenceSet.containsKey(0));
     }
 
     @Test
@@ -71,10 +73,10 @@ public class ContainerParserTest {
         Assert.assertEquals(container.sequenceId, Slice.UNMAPPED_OR_NO_REFERENCE);
 
         ContainerParser parser = new ContainerParser(samFileHeader);
-        final Set<Integer> referenceSet = parser.getReferences(container);
+        final Map<Integer, AlignmentSpan> referenceSet = parser.getReferences(container);
         Assert.assertNotNull(referenceSet);
         Assert.assertEquals(referenceSet.size(), 1);
-        Assert.assertEquals(referenceSet.iterator().next().intValue(), Slice.UNMAPPED_OR_NO_REFERENCE);
+        Assert.assertTrue(referenceSet.containsKey(Slice.UNMAPPED_OR_NO_REFERENCE));
 
     }
 
@@ -109,11 +111,11 @@ public class ContainerParserTest {
         Assert.assertEquals(container.sequenceId, Slice.MULTI_REFERENCE);
 
         ContainerParser parser = new ContainerParser(samFileHeader);
-        final Set<Integer> referenceSet = parser.getReferences(container);
+        final Map<Integer, AlignmentSpan> referenceSet = parser.getReferences(container);
         Assert.assertNotNull(referenceSet);
         Assert.assertEquals(referenceSet.size(), 2);
-        Assert.assertTrue(referenceSet.contains(Slice.UNMAPPED_OR_NO_REFERENCE));
-        Assert.assertTrue(referenceSet.contains(0));
+        Assert.assertTrue(referenceSet.containsKey(Slice.UNMAPPED_OR_NO_REFERENCE));
+        Assert.assertTrue(referenceSet.containsKey(0));
     }
 
     @Test
@@ -127,6 +129,7 @@ public class ContainerParserTest {
             record.qualityScores="!!!".getBytes();
             record.readName=""+i;
             record.alignmentStart=i+1;
+            record.readLength = 3;
 
             record.setMultiFragment(false);
             if (i < 9) {
@@ -145,12 +148,16 @@ public class ContainerParserTest {
         Assert.assertEquals(container.sequenceId, Slice.MULTI_REFERENCE);
 
         ContainerParser parser = new ContainerParser(samFileHeader);
-        final Set<Integer> referenceSet = parser.getReferences(container);
+        final Map<Integer, AlignmentSpan> referenceSet = parser.getReferences(container);
         Assert.assertNotNull(referenceSet);
         Assert.assertEquals(referenceSet.size(), 10);
-        Assert.assertTrue(referenceSet.contains(Slice.UNMAPPED_OR_NO_REFERENCE));
+        Assert.assertTrue(referenceSet.containsKey(Slice.UNMAPPED_OR_NO_REFERENCE));
         for (int i=0; i<9; i++) {
-            Assert.assertTrue(referenceSet.contains(i));
+            Assert.assertTrue(referenceSet.containsKey(i));
+            AlignmentSpan span = referenceSet.get(i);
+            Assert.assertEquals(span.getCount(), 1);
+            Assert.assertEquals(span.getStart(), i+1);
+            Assert.assertEquals(span.getSpan(), 3);
         }
     }
 }
