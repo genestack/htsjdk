@@ -400,9 +400,7 @@ public class CRAMFileWriter extends SAMFileWriterImpl {
         container.offset = offset;
         offset += ContainerIO.writeContainer(cramVersion, container, outputStream);
         if (indexer != null) {
-            for (final Slice slice : container.slices) {
-                indexer.processAlignment(slice);
-            }
+            indexer.processContainer(container);
         }
         samRecords.clear();
         refSeqIndex = REF_SEQ_INDEX_NOT_INITIALIZED;
