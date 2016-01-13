@@ -68,7 +68,7 @@ public class Slice {
     public SAMBinaryTagAndValue sliceTags;
 
     private void alignmentBordersSanityCheck(final byte[] ref) {
-//        if (sequenceId == UNMAPPED_OR_NO_REFERENCE) return ;
+        if (sequenceId == UNMAPPED_OR_NO_REFERENCE) return ;
         if (alignmentStart > 0 && sequenceId >= 0 && ref == null) throw new NullPointerException("Mapped slice reference is null.");
 
         if (alignmentStart > ref.length) {
@@ -87,7 +87,7 @@ public class Slice {
         if(sequenceId == Slice.MULTI_REFERENCE)
             throw new SAMException("Cannot verify a slice with multiple references on a single reference.");
 
-//        if (sequenceId == Slice.UNMAPPED_OR_NO_REFERENCE) return true;
+        if (sequenceId == Slice.UNMAPPED_OR_NO_REFERENCE) return true;
 
         alignmentBordersSanityCheck(ref);
 
