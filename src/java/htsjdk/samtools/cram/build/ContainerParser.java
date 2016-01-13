@@ -21,7 +21,7 @@ import htsjdk.samtools.SAMFileHeader;
 import htsjdk.samtools.SAMRecord;
 import htsjdk.samtools.SAMSequenceRecord;
 import htsjdk.samtools.ValidationStringency;
-import htsjdk.samtools.cram.encoding.reader.AlignmentSpan;
+import htsjdk.samtools.cram.structure.AlignmentSpan;
 import htsjdk.samtools.cram.encoding.reader.CramRecordReader;
 import htsjdk.samtools.cram.encoding.reader.DataReaderFactory;
 import htsjdk.samtools.cram.encoding.reader.DataReaderFactory.DataReaderWithStats;
@@ -39,10 +39,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeMap;
 
 public class ContainerParser {
@@ -56,7 +54,7 @@ public class ContainerParser {
     }
 
     public List<CramCompressionRecord> getRecords(final Container container,
-                                                  ArrayList<CramCompressionRecord> records, ValidationStringency validationStringency) throws IllegalArgumentException,
+                                                  ArrayList<CramCompressionRecord> records, final ValidationStringency validationStringency) throws IllegalArgumentException,
             IllegalAccessException {
         final long time1 = System.nanoTime();
         if (records == null) {
@@ -81,14 +79,14 @@ public class ContainerParser {
     }
 
     public Map<Integer, AlignmentSpan> getReferences(final Container container) throws IOException, IllegalAccessException {
-        Map<Integer, AlignmentSpan> containerSpanMap  = new HashMap<>();
+        final Map<Integer, AlignmentSpan> containerSpanMap  = new HashMap<>();
         for (final Slice slice : container.slices) {
             addAllSpans(containerSpanMap, getReferences(slice, container.header));
         }
         return containerSpanMap;
     }
 
-    private static void addSpan(int seqId, int start, int span, int count, Map<Integer, AlignmentSpan> map) {
+    private static void addSpan(final int seqId, final int start, final int span, final int count, final Map<Integer, AlignmentSpan> map) {
         if (map.containsKey(seqId)) {
             map.get(seqId).add(start, span, count);
         } else {
@@ -96,15 +94,15 @@ public class ContainerParser {
         }
     }
 
-    private static Map<Integer, AlignmentSpan> addAllSpans(Map<Integer, AlignmentSpan> spanMap, Map<Integer, AlignmentSpan> addition) {
-        for (Map.Entry<Integer, AlignmentSpan> entry:addition.entrySet()) {
+    private static Map<Integer, AlignmentSpan> addAllSpans(final Map<Integer, AlignmentSpan> spanMap, final Map<Integer, AlignmentSpan> addition) {
+        for (final Map.Entry<Integer, AlignmentSpan> entry:addition.entrySet()) {
             addSpan(entry.getKey(), entry.getValue().getStart(), entry.getValue().getCount(), entry.getValue().getSpan(), spanMap);
         }
         return spanMap;
     }
 
     Map<Integer, AlignmentSpan> getReferences(final Slice slice, final CompressionHeader header) throws IllegalAccessException, IOException {
-        Map<Integer, AlignmentSpan> spanMap = new HashMap<>();
+        final Map<Integer, AlignmentSpan> spanMap = new HashMap<>();
         switch (slice.sequenceId) {
             case Slice.UNMAPPED_OR_NO_REFERENCE:
                 spanMap.put(Slice.UNMAPPED_OR_NO_REFERENCE, AlignmentSpan.UNMAPPED_SPAN);
@@ -135,7 +133,7 @@ public class ContainerParser {
     }
 
     ArrayList<CramCompressionRecord> getRecords(ArrayList<CramCompressionRecord> records,
-                                                final Slice slice, final CompressionHeader header, ValidationStringency validationStringency) throws IllegalArgumentException,
+                                                final Slice slice, final CompressionHeader header, final ValidationStringency validationStringency) throws IllegalArgumentException,
             IllegalAccessException {
         String seqName = SAMRecord.NO_ALIGNMENT_REFERENCE_NAME;
         switch (slice.sequenceId) {
@@ -214,7 +212,7 @@ public class ContainerParser {
         return records;
     }
 
-    List<CramCompressionRecord> getRecords(final Slice slice, final CompressionHeader header, ValidationStringency validationStringency)
+    List<CramCompressionRecord> getRecords(final Slice slice, final CompressionHeader header, final ValidationStringency validationStringency)
             throws IllegalArgumentException, IllegalAccessException {
         return getRecords(null, slice, header, validationStringency);
     }

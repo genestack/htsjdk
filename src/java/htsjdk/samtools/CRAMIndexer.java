@@ -40,7 +40,7 @@ package htsjdk.samtools;
 
 import htsjdk.samtools.cram.build.ContainerParser;
 import htsjdk.samtools.cram.build.CramIO;
-import htsjdk.samtools.cram.encoding.reader.AlignmentSpan;
+import htsjdk.samtools.cram.structure.AlignmentSpan;
 import htsjdk.samtools.cram.structure.Container;
 import htsjdk.samtools.cram.structure.ContainerIO;
 import htsjdk.samtools.cram.structure.CramHeader;
@@ -48,6 +48,7 @@ import htsjdk.samtools.cram.structure.Slice;
 import htsjdk.samtools.seekablestream.SeekableStream;
 import htsjdk.samtools.util.BlockCompressedFilePointerUtil;
 import htsjdk.samtools.util.Log;
+import htsjdk.samtools.util.RuntimeIOException;
 
 import java.io.File;
 import java.io.IOException;
@@ -109,9 +110,9 @@ public class CRAMIndexer {
      * For multiref containers the method reads the container through unpacking all reads. This is slower than single
      * reference but should be faster than normal reading.
      *
-     * @param container
+     * @param container container to be indexed
      */
-    public void processContainer(Container container) {
+    public void processContainer(final Container container) {
         try {
             if (container == null || container.isEOF()) {
                 return;
@@ -122,14 +123,14 @@ public class CRAMIndexer {
                 slice.containerOffset = container.offset;
                 slice.index = sliceIndex++;
                 if (slice.isMultiref()) {
-                    ContainerParser parser = new ContainerParser(indexBuilder.bamHeader);
+                    final ContainerParser parser = new ContainerParser(indexBuilder.bamHeader);
                     final Map<Integer, AlignmentSpan> refSet = parser.getReferences(container);
-                    Slice fakeSlice = new Slice();
+                    final Slice fakeSlice = new Slice();
                     slice.containerOffset = container.offset;
                     slice.index = sliceIndex++;
-                    for (int refId : refSet.keySet()) {
+                    for (final int refId : refSet.keySet()) {
                         fakeSlice.sequenceId = refId;
-                        AlignmentSpan span = refSet.get(refId);
+                        final AlignmentSpan span = refSet.get(refId);
                         fakeSlice.containerOffset = slice.containerOffset;
                         fakeSlice.offset = slice.offset;
                         fakeSlice.index = slice.index;
@@ -145,9 +146,9 @@ public class CRAMIndexer {
             }
 
         } catch (final IOException e) {
-            throw new RuntimeException("Failed to read cram container", e);
-        } catch (IllegalAccessException e) {
-            throw new RuntimeException("Failed to read cram container", e);
+            throw new RuntimeIOException("Failed to read cram container", e);
+        } catch (final IllegalAccessException e) {
+            throw new SAMException("Failed to read cram container", e);
         }
     }
 
@@ -434,7 +435,6 @@ public class CRAMIndexer {
 
                 container.offset = offset;
 
-                int i = 0;
                 indexer.processContainer(container);
 
             } catch (final IOException e) {

@@ -30,10 +30,10 @@ import htsjdk.samtools.cram.encoding.readfeatures.RefSkip;
 import htsjdk.samtools.cram.encoding.readfeatures.Scores;
 import htsjdk.samtools.cram.encoding.readfeatures.SoftClip;
 import htsjdk.samtools.cram.encoding.readfeatures.Substitution;
+import htsjdk.samtools.cram.structure.AlignmentSpan;
 import htsjdk.samtools.cram.structure.CramCompressionRecord;
 import htsjdk.samtools.cram.structure.ReadTag;
 
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Map;
@@ -49,7 +49,7 @@ public class RefSeqIdReader extends AbstractReader {
 	/**
 	 * Reference sequence id set by default
 	 */
-	private int globalReferenceSequenceId;
+	private final int globalReferenceSequenceId;
 
 	/**
 	 * Alignment start to start counting from
@@ -63,14 +63,14 @@ public class RefSeqIdReader extends AbstractReader {
 	/**
 	 * Single record to use for capturing read fields:
  	 */
-	private CramCompressionRecord cramRecord = new CramCompressionRecord();
+	private final CramCompressionRecord cramRecord = new CramCompressionRecord();
 
 	/**
 	 * Detected sequence spans
 	 */
-	private Map<Integer, AlignmentSpan> spans = new HashMap<>();
+	private final Map<Integer, AlignmentSpan> spans = new HashMap<>();
 
-	public RefSeqIdReader(int seqId, int alignmentStart) {
+	public RefSeqIdReader(final int seqId, final int alignmentStart) {
 		super();
 		this.globalReferenceSequenceId = seqId;
 		this.alignmentStart = alignmentStart;
@@ -80,7 +80,7 @@ public class RefSeqIdReader extends AbstractReader {
 		return spans;
 	}
 
-	public void read() throws IOException {
+	public void read() {
 		cramRecord.sequenceId = globalReferenceSequenceId;
 		try {
 			cramRecord.flags = bitFlagsCodec.readData();
@@ -224,7 +224,7 @@ public class RefSeqIdReader extends AbstractReader {
 
 			recordCounter++;
 
-		} catch (Exception e) {
+		} catch (final Exception e) {
 			System.err.printf("Failed at record %d. \n", recordCounter);
 			throw new RuntimeException(e);
 		}
