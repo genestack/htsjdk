@@ -21,6 +21,7 @@ import htsjdk.samtools.SAMFileHeader;
 import htsjdk.samtools.SAMRecord;
 import htsjdk.samtools.SAMSequenceRecord;
 import htsjdk.samtools.ValidationStringency;
+import htsjdk.samtools.cram.encoding.reader.AlignmentSpan;
 import htsjdk.samtools.cram.encoding.reader.CramRecordReader;
 import htsjdk.samtools.cram.encoding.reader.DataReaderFactory;
 import htsjdk.samtools.cram.encoding.reader.DataReaderFactory.DataReaderWithStats;
@@ -79,19 +80,34 @@ public class ContainerParser {
         return records;
     }
 
-    public Set<Integer> getReferences(final Container container) throws IOException, IllegalAccessException {
-        Set<Integer> set = new HashSet<>();
+    public Map<Integer, AlignmentSpan> getReferences(final Container container) throws IOException, IllegalAccessException {
+        Map<Integer, AlignmentSpan> containerSpanMap  = new HashMap<>();
         for (final Slice slice : container.slices) {
-            set.addAll(getReferences(slice, container.header));
+            addAllSpans(containerSpanMap, getReferences(slice, container.header));
         }
-        return set;
+        return containerSpanMap;
     }
 
-    Set<Integer> getReferences(final Slice slice, final CompressionHeader header) throws IllegalAccessException, IOException {
-        Set<Integer> set = new HashSet<>();
+    private static void addSpan(int seqId, int start, int span, int count, Map<Integer, AlignmentSpan> map) {
+        if (map.containsKey(seqId)) {
+            map.get(seqId).add(start, span, count);
+        } else {
+            map.put(seqId, new AlignmentSpan(start, span, count));
+        }
+    }
+
+    private static Map<Integer, AlignmentSpan> addAllSpans(Map<Integer, AlignmentSpan> spanMap, Map<Integer, AlignmentSpan> addition) {
+        for (Map.Entry<Integer, AlignmentSpan> entry:addition.entrySet()) {
+            addSpan(entry.getKey(), entry.getValue().getStart(), entry.getValue().getCount(), entry.getValue().getSpan(), spanMap);
+        }
+        return spanMap;
+    }
+
+    Map<Integer, AlignmentSpan> getReferences(final Slice slice, final CompressionHeader header) throws IllegalAccessException, IOException {
+        Map<Integer, AlignmentSpan> spanMap = new HashMap<>();
         switch (slice.sequenceId) {
             case Slice.UNMAPPED_OR_NO_REFERENCE:
-                set.add(Slice.UNMAPPED_OR_NO_REFERENCE);
+                spanMap.put(Slice.UNMAPPED_OR_NO_REFERENCE, AlignmentSpan.UNMAPPED_SPAN);
                 break;
             case Slice.MULTI_REFERENCE:
                 final DataReaderFactory dataReaderFactory = new DataReaderFactory();
@@ -109,13 +125,13 @@ public class ContainerParser {
                 for (int i = 0; i < slice.nofRecords; i++) {
                     reader.read();
                 }
-                set.addAll(reader.getReferenceSpans().keySet());
+                addAllSpans(spanMap, reader.getReferenceSpans());
                 break;
             default:
-                set.add(slice.sequenceId);
+                addSpan(slice.sequenceId, slice.alignmentStart, slice.alignmentSpan, slice.nofRecords, spanMap);
                 break;
         }
-        return set;
+        return spanMap;
     }
 
     ArrayList<CramCompressionRecord> getRecords(ArrayList<CramCompressionRecord> records,
