@@ -38,7 +38,9 @@
  */
 package htsjdk.samtools;
 
+import htsjdk.samtools.cram.build.ContainerParser;
 import htsjdk.samtools.cram.build.CramIO;
+import htsjdk.samtools.cram.encoding.reader.AlignmentSpan;
 import htsjdk.samtools.cram.structure.Container;
 import htsjdk.samtools.cram.structure.ContainerIO;
 import htsjdk.samtools.cram.structure.CramHeader;
@@ -52,6 +54,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Class for both constructing BAM index content and writing it out.
@@ -101,16 +104,72 @@ public class CRAMIndexer {
     }
 
     /**
-     * Record any index information for a given CRAM slice.
-     * If this alignment starts a new reference, write out the old reference.
-     * Requires a non-null value for rec.getFileSource().
+     * Index a container, any of mapped, unmapped and multiple references are allowed. The only requirement is sort
+     * order by coordinate.
+     * For multiref containers the method reads the container through unpacking all reads. This is slower than single
+     * reference but should be faster than normal reading.
      *
-     * @param slice The CRAM slice
+     * @param container
      */
-    public void processAlignment(final Slice slice) {
+    public void processContainer(Container container) {
+        try {
+            if (container == null || container.isEOF()) {
+                return;
+            }
+
+            int sliceIndex = 0;
+            for (final Slice slice : container.slices) {
+                slice.containerOffset = container.offset;
+                slice.index = sliceIndex++;
+                if (slice.isMultiref()) {
+                    ContainerParser parser = new ContainerParser(indexBuilder.bamHeader);
+                    final Map<Integer, AlignmentSpan> refSet = parser.getReferences(container);
+                    Slice fakeSlice = new Slice();
+                    slice.containerOffset = container.offset;
+                    slice.index = sliceIndex++;
+                    for (int refId : refSet.keySet()) {
+                        fakeSlice.sequenceId = refId;
+                        AlignmentSpan span = refSet.get(refId);
+                        fakeSlice.containerOffset = slice.containerOffset;
+                        fakeSlice.offset = slice.offset;
+                        fakeSlice.index = slice.index;
+
+                        fakeSlice.alignmentStart = span.getStart();
+                        fakeSlice.alignmentSpan = span.getSpan();
+                        fakeSlice.nofRecords = span.getCount();
+                        processSingleReferenceSlice(fakeSlice);
+                    }
+                } else {
+                    processSingleReferenceSlice(slice);
+                }
+            }
+
+        } catch (final IOException e) {
+            throw new RuntimeException("Failed to read cram container", e);
+        } catch (IllegalAccessException e) {
+            throw new RuntimeException("Failed to read cram container", e);
+        }
+    }
+
+    /**
+     * Record index information for a given CRAM slice that contains either unmapped reads or
+     * reads mapped to a single reference.
+     * If this alignment starts a new reference, write out the old reference.
+     *
+     * @param slice The CRAM slice, single ref or unmapped only.
+     * @throws htsjdk.samtools.SAMException if slice refers to multiple reference sequences.
+     */
+    public void processSingleReferenceSlice(final Slice slice) {
+        System.out.println(slice.toString());
         try {
             final int reference = slice.sequenceId;
-            if (reference != SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX && reference != currentReference) {
+            if (reference == SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX) {
+                return;
+            }
+            if (slice.sequenceId == Slice.MULTI_REFERENCE) {
+                throw new SAMException("Expecting a single reference slice.");
+            }
+            if (reference != currentReference) {
                 // process any completed references
                 advanceToReference(reference);
             }
@@ -187,7 +246,7 @@ public class CRAMIndexer {
         /**
          * Record any index information for a given BAM record
          *
-         * @param slice The BAM record. Requires rec.getFileSource() is non-null.
+         * @param slice CRAM slice, single ref or unmapped only.
          */
         public void processAlignment(final Slice slice) {
 
@@ -293,7 +352,9 @@ public class CRAMIndexer {
             }
 
             // process bins
-            if (binsSeen == 0) return null;  // no bins for this reference
+            if (binsSeen == 0) {
+                return null;  // no bins for this reference
+            }
 
             // process chunks
             // nothing needed
@@ -350,28 +411,31 @@ public class CRAMIndexer {
     public static void createIndex(final SeekableStream stream, final File output, final Log log) throws IOException {
 
         final CramHeader cramHeader = CramIO.readCramHeader(stream);
+        if (cramHeader.getSamFileHeader().getSortOrder() != SAMFileHeader.SortOrder.coordinate) {
+            throw new SAMException("Expecting a coordinate sorted file.");
+        }
         final CRAMIndexer indexer = new CRAMIndexer(output, cramHeader.getSamFileHeader());
 
         int totalRecords = 0;
         Container container = null;
         do {
-            if (++totalRecords % 10 == 0)
-                if (null != log) log.info(totalRecords + " slices processed ...");
+            if (++totalRecords % 10 == 0) {
+                if (null != log) {
+                    log.info(totalRecords + " slices processed ...");
+                }
+            }
 
             try {
                 final long offset = stream.position();
                 container = ContainerIO.readContainer(cramHeader.getVersion(), stream);
-                if (container == null || container.isEOF())
+                if (container == null || container.isEOF()) {
                     break;
+                }
 
                 container.offset = offset;
 
                 int i = 0;
-                for (final Slice slice : container.slices) {
-                    slice.containerOffset = offset;
-                    slice.index = i++;
-                    indexer.processAlignment(slice);
-                }
+                indexer.processContainer(container);
 
             } catch (final IOException e) {
                 throw new RuntimeException("Failed to read cram container", e);
