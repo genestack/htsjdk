@@ -68,7 +68,7 @@ public class RefSeqIdReader extends AbstractReader {
 	/**
 	 * Detected sequence spans
 	 */
-	private Map<Integer, AlignmentSpan> spans = new HashMap<Integer, AlignmentSpan>();
+	private Map<Integer, AlignmentSpan> spans = new HashMap<>();
 
 	public RefSeqIdReader(int seqId, int alignmentStart) {
 		super();
@@ -91,10 +91,15 @@ public class RefSeqIdReader extends AbstractReader {
 				cramRecord.sequenceId = refId;
 
 			cramRecord.readLength = readLengthCodec.readData();
-			if (APDelta)
+			if (APDelta) {
 				cramRecord.alignmentDelta = alignmentStartCodec.readData();
-			else
+				alignmentStart += cramRecord.alignmentDelta;
+			}
+			else {
 				cramRecord.alignmentStart = alignmentStartCodec.readData();
+				alignmentStart = cramRecord.alignmentStart;
+			}
+
 			cramRecord.readGroupID = readGroupCodec.readData();
 
 			if (captureReadNames)
@@ -227,6 +232,6 @@ public class RefSeqIdReader extends AbstractReader {
 		if (!spans.containsKey(cramRecord.sequenceId)) {
 			spans.put(cramRecord.sequenceId, new AlignmentSpan(alignmentStart, cramRecord.readLength));
 		} else
-			spans.get(cramRecord.sequenceId).add(alignmentStart, cramRecord.readLength);
+			spans.get(cramRecord.sequenceId).addSingle(alignmentStart, cramRecord.readLength);
 	}
 }
