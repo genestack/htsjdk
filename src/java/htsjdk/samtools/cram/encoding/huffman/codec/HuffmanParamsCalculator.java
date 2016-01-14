@@ -1,6 +1,8 @@
-package htsjdk.samtools.cram.encoding.huffman;
+package htsjdk.samtools.cram.encoding.huffman.codec;
 
 import htsjdk.samtools.cram.common.MutableInt;
+import htsjdk.samtools.cram.encoding.huffman.HuffmanCode;
+import htsjdk.samtools.cram.encoding.huffman.HuffmanTree;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -10,7 +12,7 @@ import java.util.List;
 /**
  * A utility class to calculate Huffman encoding parameters based on the values to be encoded.
  */
-public class HuffmanParamsCalculator {
+class HuffmanParamsCalculator {
     private final HashMap<Integer, MutableInt> countMap = new HashMap<>();
     private int[] values = new int[]{};
     private int[] bitLens = new int[]{};

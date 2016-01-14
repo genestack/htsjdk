@@ -1,6 +1,5 @@
 package htsjdk.samtools.cram.encoding.huffman.codec;
 
-import htsjdk.samtools.cram.encoding.huffman.HuffmanParamsCalculator;
 import htsjdk.samtools.cram.io.DefaultBitInputStream;
 import htsjdk.samtools.cram.io.DefaultBitOutputStream;
 import htsjdk.samtools.cram.structure.ReadTag;
