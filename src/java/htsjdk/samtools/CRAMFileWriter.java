@@ -48,7 +48,7 @@ import java.util.TreeSet;
 public class CRAMFileWriter extends SAMFileWriterImpl {
     private static final int REF_SEQ_INDEX_NOT_INITIALIZED = -3;
     static int DEFAULT_RECORDS_PER_SLICE = 10000;
-    static int SWITCH_TO_MULTIREF_IF_MORE_THAN = 1000;
+    static int MIN_SINGLE_REF_RECORDS = 1000;
     private static final int DEFAULT_SLICES_PER_CONTAINER = 1;
     private static final Version cramVersion = CramVersions.CRAM_v2_1;
 
@@ -171,11 +171,14 @@ public class CRAMFileWriter extends SAMFileWriterImpl {
             return false;
         }
 
-        if (samRecords.size() > SWITCH_TO_MULTIREF_IF_MORE_THAN) {
+        /**
+         * Protection against too small containers: flush at least X single refs, switch to multiref otherwise.
+         */
+        if (samRecords.size() > MIN_SINGLE_REF_RECORDS) {
+            return true;
+        } else {
             refSeqIndex = Slice.MULTI_REFERENCE;
             return false;
-        } else {
-            return true;
         }
     }
 
