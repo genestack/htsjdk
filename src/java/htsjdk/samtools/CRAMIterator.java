@@ -163,12 +163,12 @@ public class CRAMIterator implements SAMRecordIterator {
 
         parser.getRecords(container, cramRecords, validationStringency);
 
-        if (container.sequenceId == SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX) {
+        if (container.sequenceId == Slice.UNMAPPED_OR_NO_REFERENCE) {
             refs = new byte[]{};
-            prevSeqId = -1;
-        } else if (container.sequenceId == -2) {
+            prevSeqId = Slice.UNMAPPED_OR_NO_REFERENCE;
+        } else if (container.sequenceId == Slice.MULTI_REFERENCE) {
             refs = null;
-            prevSeqId = -2;
+            prevSeqId = Slice.MULTI_REFERENCE;
         } else if (prevSeqId < 0 || prevSeqId != container.sequenceId) {
             final SAMSequenceRecord sequence = cramHeader.getSamFileHeader()
                     .getSequence(container.sequenceId);
