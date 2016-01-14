@@ -409,6 +409,27 @@ public class GenotypeLikelihoods {
     }
 
     /**
+     * The index of the value corresponding to the genotype in VCF 4.3 spec, section, 1.6.2 (Genotype Fields)
+     *
+     * @param alleleIndices list of array indices
+     * @return the index of the genotype value in for the PL
+     */
+    public static long calculatePLindex(final List<Integer> alleleIndices) {
+        // diploid
+        if ( alleleIndices.size() == 2 ){
+            return calculatePLindex(alleleIndices.get(0), alleleIndices.get(1));
+        }
+
+        long sum = 0;
+        int m = 1;
+        for ( final Integer index : alleleIndices ){
+            sum += GeneralUtils.binomial(index + m - 1, m);
+            m++;
+        }
+        return sum;
+    }
+
+    /**
      * get the allele index pair for the given PL
      *
      * @param PLindex   the PL index

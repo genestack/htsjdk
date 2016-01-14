@@ -33,8 +33,10 @@ import htsjdk.tribble.TribbleException;
 import htsjdk.variant.VariantBaseTest;
 import htsjdk.variant.utils.GeneralUtils;
 import org.testng.Assert;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
@@ -182,21 +184,47 @@ public class GenotypeLikelihoodsUnitTest extends VariantBaseTest {
         }
     }
 
-    @Test
-    public void testGetAllelePair(){
-        allelePairTest(0, 0, 0);
-        allelePairTest(1, 0, 1);
-        allelePairTest(2, 1, 1);
-        allelePairTest(3, 0, 2);
-        allelePairTest(4, 1, 2);
-        allelePairTest(5, 2, 2);
-        allelePairTest(6, 0, 3);
-        allelePairTest(7, 1, 3);
-        allelePairTest(8, 2, 3);
-        allelePairTest(9, 3, 3);
+    @DataProvider
+    public Object[][] testCalculatePLindexListData() {
+        return new Object[][]{
+                {Arrays.asList(0, 0), 0},
+                {Arrays.asList(0, 1), 1},
+                {Arrays.asList(1, 1), 2},
+                {Arrays.asList(0, 2), 3},
+                {Arrays.asList(1, 2), 4},
+                {Arrays.asList(2, 2), 5},
+                {Arrays.asList(0, 3), 6},
+                {Arrays.asList(1, 3), 7},
+                {Arrays.asList(2, 3), 8},
+                {Arrays.asList(3, 3), 9},
+                {Arrays.asList(0, 4), 10},
+                {Arrays.asList(1, 2, 3), 14}
+        };
     }
-        
-    private void allelePairTest(int PLindex, int allele1, int allele2) {
+
+    @Test(dataProvider = "testCalculatePLindexListData")
+    public void testCalculatePLindexList(final List<Integer> alleleIndices, int expected){
+        Assert.assertEquals(GenotypeLikelihoods.calculatePLindex(alleleIndices), expected);
+    }
+
+    @DataProvider
+    public Object[][] testGetAllelePairtData() {
+        return new Object[][]{
+                {0, 0, 0},
+                {1, 0, 1},
+                {2, 1, 1},
+                {3, 0, 2},
+                {4, 1, 2},
+                {5, 2, 2},
+                {6, 0, 3},
+                {7, 1, 3},
+                {8, 2, 3},
+                {9, 3, 3}
+        };
+    }
+
+    @Test(dataProvider = "testGetAllelePairtData")
+    public void testGetAllelePair(final int PLindex, final int allele1, final int allele2){
         Assert.assertEquals(GenotypeLikelihoods.getAllelePair(PLindex).alleleIndex1, allele1, "allele index " + allele1 + " from PL index " + PLindex + " was not calculated correctly");
         Assert.assertEquals(GenotypeLikelihoods.getAllelePair(PLindex).alleleIndex2, allele2, "allele index " + allele2 + " from PL index " + PLindex + " was not calculated correctly");
     }

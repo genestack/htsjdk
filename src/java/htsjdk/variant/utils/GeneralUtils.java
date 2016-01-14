@@ -49,6 +49,11 @@ public class GeneralUtils {
     public final static double LOG10_P_OF_ZERO = -1000000.0;
 
     /**
+     * Cached factorial values
+     */
+    public static final long[] LONG_FACTORIALS = new long[]{1L, 1L, 2L, 6L, 24L, 120L, 720L, 5040L, 40320L, 362880L, 3628800L, 39916800L, 479001600L, 6227020800L, 87178291200L, 1307674368000L, 20922789888000L, 355687428096000L, 6402373705728000L, 121645100408832000L, 2432902008176640000L};
+
+    /**
      * Returns a string of the form elt1.toString() [sep elt2.toString() ... sep elt.toString()] for a collection of
      * elti objects (note there's no actual space between sep and the elti elements).  Returns
      * "" if collection is empty.  If collection contains just elt, then returns elt.toString()
@@ -240,6 +245,79 @@ public class GeneralUtils {
         final List<T> newL = new ArrayList<T>(l);
         Collections.reverse(newL);
         return newL;
+    }
+
+    /**
+     * Computes the factorial of a number
+     *
+     * @param num a number
+     * @return factorial of num
+     * @throws IllegalArgumentException if num is negative or too large
+     */
+    public static long factorial(final int num) {
+        if(num < 0) {
+            throw new IllegalArgumentException("Input(" + num + ") cannot be a negative value");
+        }
+        if (num >=  LONG_FACTORIALS.length ){
+            throw new IllegalArgumentException("Input(" + num + ") must be less than " +  LONG_FACTORIALS.length);
+        }
+
+
+        return LONG_FACTORIALS[num];
+    }
+
+    /**
+     * Computes the binomial coefficient, often also referred to as "n over k" or "n choose k".
+     * The binomial coefficient is defined as (n * n-1 * ... * n-k+1 ) / ( 1 * 2 * ... * k ).
+     *
+     * @param n     number of objects
+     * @param k     sample size
+     * @return  binomial coefficient
+     */
+    public static long binomial(final long n, final long k) {
+        // negative sample size
+        if(k < 0L) {
+            return 0L;
+        }
+
+        // no samples or the number of objects and samples are the same
+        if(k == 0L || k == n){
+            return 1L;
+        }
+
+        // one sample or the sample size is 1 less than the number of objects
+        if(k == 1L || k == n - 1L) {
+            return n;
+        }
+
+        long kVariable = k;
+
+        // more objects than samples
+        if(n > k) {
+            // compute binomial coefficient with cached factorial values
+            if(n < LONG_FACTORIALS.length) {
+                final long nFactorial = factorial((int)n);
+                final long kFactorial = factorial((int)k);
+                final long nMinusKFactorial = factorial((int)(n - k));
+                final long denom = nMinusKFactorial * kFactorial;
+                return nFactorial / denom;
+            }
+
+            // sample size if more than half the number of objects
+            if(k > n / 2L) {
+                kVariable = n - k;
+            }
+        }
+
+        // compute binomial coefficient with factorials on the fly
+        long numer = n - kVariable + 1L;
+        long denom = 1L;
+        double binomialCoeff = 1.0D;
+        for ( long i = kVariable; i > 0; i-- ){
+            binomialCoeff *= (double)(numer++) / (double)(denom++);
+        }
+
+        return (long) binomialCoeff;
     }
 }
 
