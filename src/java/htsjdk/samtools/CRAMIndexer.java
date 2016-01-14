@@ -48,6 +48,7 @@ import htsjdk.samtools.cram.structure.Slice;
 import htsjdk.samtools.seekablestream.SeekableStream;
 import htsjdk.samtools.util.BlockCompressedFilePointerUtil;
 import htsjdk.samtools.util.Log;
+import htsjdk.samtools.util.ProgressLogger;
 import htsjdk.samtools.util.RuntimeIOException;
 
 import java.io.File;
@@ -418,13 +419,8 @@ public class CRAMIndexer {
 
         int totalRecords = 0;
         Container container = null;
+        ProgressLogger progressLogger = new ProgressLogger(log, 1, "indexed", "slices");
         do {
-            if (++totalRecords % 10 == 0) {
-                if (null != log) {
-                    log.info(totalRecords + " slices processed ...");
-                }
-            }
-
             try {
                 final long offset = stream.position();
                 container = ContainerIO.readContainer(cramHeader.getVersion(), stream);
@@ -435,6 +431,22 @@ public class CRAMIndexer {
                 container.offset = offset;
 
                 indexer.processContainer(container);
+
+                if (null != log) {
+                    String sequenceName;
+                    switch (container.sequenceId) {
+                        case Slice.UNMAPPED_OR_NO_REFERENCE:
+                            sequenceName = "?";
+                            break;
+                        case Slice.MULTI_REFERENCE:
+                            sequenceName = "???";
+                            break;
+                        default:
+                            sequenceName = cramHeader.getSamFileHeader().getSequence(container.sequenceId).getSequenceName();
+                            break;
+                    }
+                    progressLogger.record(sequenceName, container.alignmentStart);
+                }
 
             } catch (final IOException e) {
                 throw new RuntimeException("Failed to read cram container", e);
