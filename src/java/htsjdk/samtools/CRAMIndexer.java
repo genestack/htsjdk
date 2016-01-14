@@ -161,7 +161,6 @@ public class CRAMIndexer {
      * @throws htsjdk.samtools.SAMException if slice refers to multiple reference sequences.
      */
     public void processSingleReferenceSlice(final Slice slice) {
-        System.out.println(slice.toString());
         try {
             final int reference = slice.sequenceId;
             if (reference == SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX) {
