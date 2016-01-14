@@ -52,11 +52,12 @@ import java.util.TreeMap;
  * This particular version relies heavily on GZIP and RANS for better compression.
  */
 public class CompressionHeaderFactory {
+    private static final int TAG_VALUE_BUFFER_SIZE = 1024 * 1024;
     private final Map<Integer, EncodingDetails> bestEncodings = new HashMap<>();
     private final ByteArrayOutputStream baosForTagValues;
 
     public CompressionHeaderFactory() {
-        baosForTagValues = new ByteArrayOutputStream(1024 * 1024);
+        baosForTagValues = new ByteArrayOutputStream(TAG_VALUE_BUFFER_SIZE);
     }
 
     /**
