@@ -527,6 +527,7 @@ public class CRAMFileReader extends SamReader.ReaderImplementation implements Sa
         boolean isWithinTheInterval(final SAMRecord record) {
             final boolean refMatch = record.getReferenceIndex() == interval.referenceIndex;
             if (interval.start == -1) return refMatch;
+            if (!refMatch) return false;
 
             final int start = record.getAlignmentStart();
             final int end = record.getAlignmentEnd();
@@ -541,8 +542,10 @@ public class CRAMFileReader extends SamReader.ReaderImplementation implements Sa
 
         boolean isBeyondTheInterval(final SAMRecord record) {
             if (record.getReadUnmappedFlag()) return false;
-            final boolean refMatch = record.getReferenceIndex() == interval.referenceIndex;
-            return !refMatch || interval.end != -1 && record.getAlignmentStart() > interval.end;
+            if (record.getReferenceIndex() > interval.referenceIndex) return true;
+            if (record.getReferenceIndex() != interval.referenceIndex) return false;
+            
+            return interval.end != -1 && record.getAlignmentStart() > interval.end;
 
         }
 
