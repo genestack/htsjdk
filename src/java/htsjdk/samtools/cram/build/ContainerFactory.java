@@ -179,9 +179,6 @@ public class ContainerFactory {
         int prevAlStart = slice.alignmentStart;
         for (final CramCompressionRecord record : records) {
             record.alignmentDelta = record.alignmentStart - prevAlStart;
-            if (record.alignmentDelta <0) {
-                System.out.println("hgotcha");
-            }
             prevAlStart = record.alignmentStart;
             try {
                 writer.write(record);
