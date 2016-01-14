@@ -78,10 +78,10 @@ public class ContainerParser {
         return records;
     }
 
-    public Map<Integer, AlignmentSpan> getReferences(final Container container) throws IOException, IllegalAccessException {
+    public Map<Integer, AlignmentSpan> getReferences(final Container container, final ValidationStringency validationStringency) throws IOException, IllegalAccessException {
         final Map<Integer, AlignmentSpan> containerSpanMap  = new HashMap<>();
         for (final Slice slice : container.slices) {
-            addAllSpans(containerSpanMap, getReferences(slice, container.header));
+            addAllSpans(containerSpanMap, getReferences(slice, container.header, validationStringency));
         }
         return containerSpanMap;
     }
@@ -101,7 +101,7 @@ public class ContainerParser {
         return spanMap;
     }
 
-    Map<Integer, AlignmentSpan> getReferences(final Slice slice, final CompressionHeader header) throws IllegalAccessException, IOException {
+    Map<Integer, AlignmentSpan> getReferences(final Slice slice, final CompressionHeader header, final ValidationStringency validationStringency) throws IllegalAccessException, IOException {
         final Map<Integer, AlignmentSpan> spanMap = new HashMap<>();
         switch (slice.sequenceId) {
             case Slice.UNMAPPED_OR_NO_REFERENCE:
@@ -115,7 +115,7 @@ public class ContainerParser {
                             .getRawContent()));
                 }
 
-                final RefSeqIdReader reader = new RefSeqIdReader(Slice.MULTI_REFERENCE, slice.alignmentStart);
+                final RefSeqIdReader reader = new RefSeqIdReader(Slice.MULTI_REFERENCE, slice.alignmentStart, validationStringency);
                 dataReaderFactory.buildReader(reader, new DefaultBitInputStream(
                                 new ByteArrayInputStream(slice.coreBlock.getRawContent())),
                         inputMap, header, slice.sequenceId);

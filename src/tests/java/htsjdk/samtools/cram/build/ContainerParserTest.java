@@ -2,6 +2,7 @@ package htsjdk.samtools.cram.build;
 
 import htsjdk.samtools.SAMFileHeader;
 import htsjdk.samtools.SAMRecord;
+import htsjdk.samtools.ValidationStringency;
 import htsjdk.samtools.cram.structure.AlignmentSpan;
 import htsjdk.samtools.cram.structure.Container;
 import htsjdk.samtools.cram.structure.CramCompressionRecord;
@@ -43,7 +44,7 @@ public class ContainerParserTest {
         Assert.assertEquals(container.sequenceId, 0);
 
         ContainerParser parser = new ContainerParser(samFileHeader);
-        final Map<Integer, AlignmentSpan> referenceSet = parser.getReferences(container);
+        final Map<Integer, AlignmentSpan> referenceSet = parser.getReferences(container, ValidationStringency.STRICT);
         Assert.assertNotNull(referenceSet);
         Assert.assertEquals(referenceSet.size(), 1);
         Assert.assertTrue(referenceSet.containsKey(0));
@@ -71,7 +72,7 @@ public class ContainerParserTest {
         Assert.assertEquals(container.sequenceId, Slice.UNMAPPED_OR_NO_REFERENCE);
 
         ContainerParser parser = new ContainerParser(samFileHeader);
-        final Map<Integer, AlignmentSpan> referenceSet = parser.getReferences(container);
+        final Map<Integer, AlignmentSpan> referenceSet = parser.getReferences(container, ValidationStringency.STRICT);
         Assert.assertNotNull(referenceSet);
         Assert.assertEquals(referenceSet.size(), 1);
         Assert.assertTrue(referenceSet.containsKey(Slice.UNMAPPED_OR_NO_REFERENCE));
@@ -109,7 +110,7 @@ public class ContainerParserTest {
         Assert.assertEquals(container.sequenceId, Slice.MULTI_REFERENCE);
 
         ContainerParser parser = new ContainerParser(samFileHeader);
-        final Map<Integer, AlignmentSpan> referenceSet = parser.getReferences(container);
+        final Map<Integer, AlignmentSpan> referenceSet = parser.getReferences(container, ValidationStringency.STRICT);
         Assert.assertNotNull(referenceSet);
         Assert.assertEquals(referenceSet.size(), 2);
         Assert.assertTrue(referenceSet.containsKey(Slice.UNMAPPED_OR_NO_REFERENCE));
@@ -146,7 +147,7 @@ public class ContainerParserTest {
         Assert.assertEquals(container.sequenceId, Slice.MULTI_REFERENCE);
 
         ContainerParser parser = new ContainerParser(samFileHeader);
-        final Map<Integer, AlignmentSpan> referenceSet = parser.getReferences(container);
+        final Map<Integer, AlignmentSpan> referenceSet = parser.getReferences(container, ValidationStringency.STRICT);
         Assert.assertNotNull(referenceSet);
         Assert.assertEquals(referenceSet.size(), 10);
         Assert.assertTrue(referenceSet.containsKey(Slice.UNMAPPED_OR_NO_REFERENCE));

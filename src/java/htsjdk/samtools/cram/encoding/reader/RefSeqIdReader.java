@@ -55,6 +55,7 @@ public class RefSeqIdReader extends AbstractReader {
 	 * Alignment start to start counting from
 	 */
 	private int alignmentStart;
+	private ValidationStringency validationStringency;
 	/**
 	 * For diagnostic purposes
 	 */
@@ -70,10 +71,11 @@ public class RefSeqIdReader extends AbstractReader {
 	 */
 	private final Map<Integer, AlignmentSpan> spans = new HashMap<>();
 
-	public RefSeqIdReader(final int seqId, final int alignmentStart) {
+	public RefSeqIdReader(final int seqId, final int alignmentStart, ValidationStringency validationStringency) {
 		super();
 		this.globalReferenceSequenceId = seqId;
 		this.alignmentStart = alignmentStart;
+		this.validationStringency = validationStringency;
 	}
 
 	public Map<Integer, AlignmentSpan> getReferenceSpans() {
@@ -126,7 +128,7 @@ public class RefSeqIdReader extends AbstractReader {
 				for (int i = 0; i < ids.length; i++) {
 					final int id = ReadTag.name3BytesToInt(ids[i]);
 					final DataReader<byte[]> dataReader = tagValueCodecs.get(id);
-					final ReadTag tag = new ReadTag(id, dataReader.readData(), ValidationStringency.SILENT);
+					final ReadTag tag = new ReadTag(id, dataReader.readData(), validationStringency);
 					cramRecord.tags[i] = tag;
 				}
 			}
