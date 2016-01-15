@@ -38,6 +38,7 @@ import htsjdk.samtools.util.StringLineReader;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -162,7 +163,16 @@ public class CRAMFileWriter extends SAMFileWriterImpl {
             return true;
         }
 
-        if (samFileHeader.getSortOrder() != SAMFileHeader.SortOrder.coordinate || refSeqIndex == Slice.MULTI_REFERENCE) {
+        if (samFileHeader.getSortOrder() != SAMFileHeader.SortOrder.coordinate) {
+            return false;
+        }
+
+        // make unmapped reads don't get into multiref containers:
+        if (refSeqIndex != Slice.UNMAPPED_OR_NO_REFERENCE && nextRecord.getReferenceIndex() == SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX) {
+            return true;
+        }
+
+        if (refSeqIndex == Slice.MULTI_REFERENCE) {
             return false;
         }
 
@@ -403,7 +413,11 @@ public class CRAMFileWriter extends SAMFileWriterImpl {
         container.offset = offset;
         offset += ContainerIO.writeContainer(cramVersion, container, outputStream);
         if (indexer != null) {
-            indexer.processContainer(container);
+            /**
+             * Using silent validation here because the reads have been through validation already or
+             * they have been generated somehow through the htsjdk.
+             */
+            indexer.processContainer(container, ValidationStringency.SILENT);
         }
         samRecords.clear();
         refSeqIndex = REF_SEQ_INDEX_NOT_INITIALIZED;
