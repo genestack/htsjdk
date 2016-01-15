@@ -1,7 +1,9 @@
 package htsjdk.samtools;
 
+import htsjdk.samtools.cram.build.ContainerParser;
 import htsjdk.samtools.cram.build.CramContainerIterator;
 import htsjdk.samtools.cram.ref.ReferenceSource;
+import htsjdk.samtools.cram.structure.AlignmentSpan;
 import htsjdk.samtools.cram.structure.Container;
 import htsjdk.samtools.reference.FakeReferenceSequenceFile;
 import htsjdk.samtools.seekablestream.ByteArraySeekableStream;
@@ -23,6 +25,8 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.Map;
+import java.util.TreeSet;
 
 /**
  * A collection of tests for CRAM index write/read that use BAMFileIndexTest/index_test.bam file as the source of the test data.
@@ -120,8 +124,9 @@ public class CRAMFileIndexTest {
 
             String s2 = cramRecord.getSAMString();
 
-            Assert.assertEquals(samRecord.getReferenceName(), cramRecord.getReferenceName(), s1 + "\n" + s2);
-            Assert.assertEquals(samRecord.getAlignmentStart(), cramRecord.getAlignmentStart(), s1 + "\n" + s2);
+            Assert.assertEquals(samRecord.getReferenceName(), cramRecord.getReferenceName(), s1 + s2);
+            // default 'overlap' is true, so test records intersect the query:
+            Assert.assertTrue(CoordMath.overlaps(cramRecord.getAlignmentStart(), cramRecord.getAlignmentEnd(), samRecord.getAlignmentStart(), samRecord.getAlignmentEnd()), s1 + s2);
 
             counter++;
         }
@@ -167,25 +172,26 @@ public class CRAMFileIndexTest {
     }
 
     @Test
-    public void testIteratorFromFileSpan_SecondContainer() throws IOException {
+    public void testIteratorFromFileSpan_SecondContainer() throws IOException, IllegalAccessException {
         CramContainerIterator it = new CramContainerIterator(new ByteArrayInputStream(cramBytes));
         it.hasNext();
         it.next();
         it.hasNext();
         Container secondContainer = it.next();
         Assert.assertNotNull(secondContainer);
+        final Map<Integer, AlignmentSpan> references = new ContainerParser(it.getCramHeader().getSamFileHeader()).getReferences(secondContainer, ValidationStringency.STRICT);
         it.close();
-
+        int refId = new TreeSet<Integer>(references.keySet()).iterator().next();
+        final AlignmentSpan alignmentSpan = references.get(refId);
 
         CRAMFileReader reader = new CRAMFileReader(new ByteArraySeekableStream(cramBytes), new ByteArraySeekableStream(baiBytes), source, ValidationStringency.SILENT);
         reader.setValidationStringency(ValidationStringency.SILENT);
 
         final BAMIndex index = reader.getIndex();
-        final SAMFileSpan spanOfSecondContainer = index.getSpanOverlapping(secondContainer.sequenceId, secondContainer.alignmentStart, secondContainer.alignmentStart + secondContainer.alignmentSpan);
+        final SAMFileSpan spanOfSecondContainer = index.getSpanOverlapping(refId, alignmentSpan.getStart(), alignmentSpan.getStart()+ alignmentSpan.getSpan());
         Assert.assertNotNull(spanOfSecondContainer);
         Assert.assertFalse(spanOfSecondContainer.isEmpty());
         Assert.assertTrue(spanOfSecondContainer instanceof BAMFileSpan);
-        Assert.assertEquals(((BAMFileSpan) spanOfSecondContainer).getChunks().size(), 1);
 
         final CloseableIterator<SAMRecord> iterator = reader.getIterator(spanOfSecondContainer);
         Assert.assertTrue(iterator.hasNext());
@@ -193,14 +199,14 @@ public class CRAMFileIndexTest {
         boolean matchFound = false;
         while (iterator.hasNext()) {
             final SAMRecord record = iterator.next();
-            if (record.getReferenceIndex().intValue() == secondContainer.sequenceId) {
-                boolean overlaps = CoordMath.overlaps(record.getAlignmentStart(), record.getAlignmentEnd(), secondContainer.alignmentStart, secondContainer.alignmentStart + secondContainer.alignmentSpan);
+            if (record.getReferenceIndex().intValue() == refId) {
+                boolean overlaps = CoordMath.overlaps(record.getAlignmentStart(), record.getAlignmentEnd(), alignmentSpan.getStart(), alignmentSpan.getStart()+ alignmentSpan.getSpan());
                 if (overlaps) matchFound = true;
             }
             counter++;
         }
         Assert.assertTrue(matchFound);
-        Assert.assertTrue(counter <= nofReadsPerContainer);
+        Assert.assertTrue(counter <= CRAMFileWriter.DEFAULT_RECORDS_PER_SLICE);
     }
 
     @Test
@@ -258,7 +264,7 @@ public class CRAMFileIndexTest {
         fos.write(cramBytes);
         fos.close();
 
-        CRAMIndexer.createIndex(new SeekableFileStream(cramFile), indexFile, null);
+        CRAMIndexer.createIndex(new SeekableFileStream(cramFile), indexFile, null, ValidationStringency.STRICT);
         baiBytes = readFile(indexFile);
     }
 
