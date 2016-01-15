@@ -54,7 +54,7 @@ public class CRAMIndexerTest {
         Assert.assertEquals(container.nofRecords, records.size());
         Assert.assertEquals(container.sequenceId, Slice.MULTI_REFERENCE);
 
-        indexer.processContainer(container);
+        indexer.processContainer(container, ValidationStringency.STRICT);
         indexer.finish();
 
         BAMIndex index = new CachingBAMFileIndex(new SeekableMemoryStream(indexBAOS.toByteArray(), null), samFileHeader.getSequenceDictionary());
