@@ -128,7 +128,7 @@ public class CRAMIterator implements SAMRecordIterator {
         return cramHeader;
     }
 
-    private void nextContainer() throws IOException, IllegalArgumentException,
+    void nextContainer() throws IOException, IllegalArgumentException,
             IllegalAccessException, CRAMException {
 
         if (containerIterator != null) {
