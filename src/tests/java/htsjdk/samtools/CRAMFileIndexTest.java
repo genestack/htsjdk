@@ -106,7 +106,7 @@ public class CRAMFileIndexTest {
     }
 
     @Test
-    public void scanAllMappedReads() throws IOException {
+    public void scanMappedReads() throws IOException {
         SamReader samReader = SamReaderFactory.makeDefault().open(BAM_FILE);
         SAMRecordIterator samRecordIterator = samReader.iterator();
         CRAMFileReader reader = new CRAMFileReader(new ByteArraySeekableStream(cramBytes), new ByteArraySeekableStream(baiBytes), source, ValidationStringency.SILENT);
@@ -116,6 +116,8 @@ public class CRAMFileIndexTest {
         while (samRecordIterator.hasNext()) {
             SAMRecord samRecord = samRecordIterator.next();
             if (samRecord.getReferenceIndex() == SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX) break;
+            // test only 1st and 2nd in every 100 to speed the test up:
+            if (counter++ %100 > 1) continue;
             String s1 = samRecord.getSAMString();
 
             CloseableIterator<SAMRecord> iterator = reader.queryAlignmentStart(samRecord.getReferenceName(), samRecord.getAlignmentStart());
@@ -127,8 +129,6 @@ public class CRAMFileIndexTest {
             Assert.assertEquals(samRecord.getReferenceName(), cramRecord.getReferenceName(), s1 + s2);
             // default 'overlap' is true, so test records intersect the query:
             Assert.assertTrue(CoordMath.overlaps(cramRecord.getAlignmentStart(), cramRecord.getAlignmentEnd(), samRecord.getAlignmentStart(), samRecord.getAlignmentEnd()), s1 + s2);
-
-            counter++;
         }
         samRecordIterator.close();
         reader.close();
