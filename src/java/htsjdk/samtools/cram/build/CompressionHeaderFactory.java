@@ -53,6 +53,7 @@ import java.util.TreeMap;
  */
 public class CompressionHeaderFactory {
     private static final int TAG_VALUE_BUFFER_SIZE = 1024 * 1024;
+    public static final int BYTE_SPACE_SIZE = 256;
     private final Map<Integer, EncodingDetails> bestEncodings = new HashMap<>();
     private final ByteArrayOutputStream baosForTagValues;
 
@@ -191,7 +192,7 @@ public class CompressionHeaderFactory {
      *         {@link htsjdk.samtools.cram.structure.SubstitutionMatrix}
      */
     static long[][] buildFrequencies(final List<CramCompressionRecord> records) {
-        final long[][] frequencies = new long[200][200];
+        final long[][] frequencies = new long[BYTE_SPACE_SIZE][BYTE_SPACE_SIZE];
         for (final CramCompressionRecord record : records) {
             if (record.readFeatures != null) {
                 for (final ReadFeature readFeature : record.readFeatures) {
@@ -374,12 +375,12 @@ public class CompressionHeaderFactory {
      * @return byte value or -1 if the array contains all possible byte values.
      */
     static int getUnusedByte(final byte[] array) {
-        final byte[] usage = new byte[256];
+        final byte[] usage = new byte[BYTE_SPACE_SIZE];
         for (final byte b : array) {
             usage[0xFF & b] = 1;
         }
 
-        for (int i = 0; i < 256; i++) {
+        for (int i = 0; i < usage.length; i++) {
             if (usage[i] == 0)
                 return i;
         }
