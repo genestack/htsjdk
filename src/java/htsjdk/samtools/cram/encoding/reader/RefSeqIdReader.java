@@ -33,6 +33,7 @@ import htsjdk.samtools.cram.encoding.readfeatures.Substitution;
 import htsjdk.samtools.cram.structure.AlignmentSpan;
 import htsjdk.samtools.cram.structure.CramCompressionRecord;
 import htsjdk.samtools.cram.structure.ReadTag;
+import htsjdk.samtools.cram.structure.Slice;
 
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -87,7 +88,7 @@ public class RefSeqIdReader extends AbstractReader {
 		try {
 			cramRecord.flags = bitFlagsCodec.readData();
 			cramRecord.compressionFlags = compressionBitFlagsCodec.readData();
-			if (refId == -2)
+			if (refId == Slice.MULTI_REFERENCE)
 				cramRecord.sequenceId = refIdCodec.readData();
 			else
 				cramRecord.sequenceId = refId;
