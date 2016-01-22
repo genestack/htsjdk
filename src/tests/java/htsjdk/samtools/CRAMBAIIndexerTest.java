@@ -17,7 +17,7 @@ import java.util.List;
 /**
  * Created by vadim on 12/01/2016.
  */
-public class CRAMIndexerTest {
+public class CRAMBAIIndexerTest {
 
     private static CramCompressionRecord createRecord(int recordIndex, int seqId, int start) {
         byte[] bases = "AAAAA".getBytes();
@@ -40,6 +40,7 @@ public class CRAMIndexerTest {
         SAMFileHeader samFileHeader = new SAMFileHeader();
         samFileHeader.addSequence(new SAMSequenceRecord("1", 10));
         samFileHeader.addSequence(new SAMSequenceRecord("2", 10));
+        samFileHeader.addSequence(new SAMSequenceRecord("3", 10));
         ByteArrayOutputStream indexBAOS = new ByteArrayOutputStream();
         CRAMIndexer indexer = new CRAMIndexer(indexBAOS, samFileHeader);
         int recordsPerContainer = 3;
@@ -49,12 +50,24 @@ public class CRAMIndexerTest {
         records.add(createRecord(1, 1, 2));
         records.add(createRecord(2, 1, 3));
 
-        final Container container = containerFactory.buildContainer(records);
-        Assert.assertNotNull(container);
-        Assert.assertEquals(container.nofRecords, records.size());
-        Assert.assertEquals(container.sequenceId, Slice.MULTI_REFERENCE);
+        final Container container1 = containerFactory.buildContainer(records);
+        Assert.assertNotNull(container1);
+        Assert.assertEquals(container1.nofRecords, records.size());
+        Assert.assertEquals(container1.sequenceId, Slice.MULTI_REFERENCE);
 
-        indexer.processContainer(container, ValidationStringency.STRICT);
+        indexer.processContainer(container1, ValidationStringency.STRICT);
+
+        records.clear();
+        records.add(createRecord(3, 1, 3));
+        records.add(createRecord(4, 2, 3));
+        records.add(createRecord(5, 2, 4));
+        final Container  container2 = containerFactory.buildContainer(records);
+        Assert.assertNotNull(container2);
+        Assert.assertEquals(container2.nofRecords, records.size());
+        Assert.assertEquals(container2.sequenceId, Slice.MULTI_REFERENCE);
+
+        indexer.processContainer(container2, ValidationStringency.STRICT);
+
         indexer.finish();
 
         BAMIndex index = new CachingBAMFileIndex(new SeekableMemoryStream(indexBAOS.toByteArray(), null), samFileHeader.getSequenceDictionary());
@@ -64,7 +77,11 @@ public class CRAMIndexerTest {
 
         final BAMIndexMetaData metaData_1 = index.getMetaData(1);
         Assert.assertNotNull(metaData_1);
-        Assert.assertEquals(metaData_1.getAlignedRecordCount(), 2);
+        Assert.assertEquals(metaData_1.getAlignedRecordCount(), 3);
+
+        final BAMIndexMetaData metaData_2 = index.getMetaData(2);
+        Assert.assertNotNull(metaData_2);
+        Assert.assertEquals(metaData_2.getAlignedRecordCount(), 2);
     }
 
 }
