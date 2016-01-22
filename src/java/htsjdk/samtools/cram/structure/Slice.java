@@ -69,7 +69,7 @@ public class Slice {
 
     private void alignmentBordersSanityCheck(final byte[] ref) {
         if (sequenceId == SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX) return ;
-        if (alignmentStart > 0 && sequenceId >= 0 && ref == null) throw new NullPointerException("Mapped slice reference is null.");
+        if (alignmentStart > 0 && sequenceId >= 0 && ref == null) throw new IllegalArgumentException ("Mapped slice reference is null.");
 
         if (alignmentStart > ref.length) {
             log.error(String.format("Slice mapped outside of reference: seqID=%d, start=%d, counter=%d.", sequenceId, alignmentStart,
