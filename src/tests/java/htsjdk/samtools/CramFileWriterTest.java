@@ -245,7 +245,14 @@ public class CramFileWriterTest {
         }
 
         try (final SamReader outReader = SamReaderFactory.makeDefault().referenceSequence(reference).open(outputFile)) {
+            String prevName = null;
             for (final SAMRecord rec : outReader) {
+                if (prevName == null) {
+                    prevName = rec.getReadName();
+                    continue;
+                }
+                // test if the read names are sorted alphabetically:
+                Assert.assertTrue(rec.getReadName().compareTo(prevName) >=0);
             }
         }
 
