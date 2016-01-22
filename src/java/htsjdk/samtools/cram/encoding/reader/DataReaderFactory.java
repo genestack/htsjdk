@@ -17,6 +17,7 @@
  */
 package htsjdk.samtools.cram.encoding.reader;
 
+import htsjdk.samtools.cram.CRAMException;
 import htsjdk.samtools.cram.common.IntHashMap;
 import htsjdk.samtools.cram.encoding.BitCodec;
 import htsjdk.samtools.cram.encoding.DataSeries;
@@ -46,8 +47,7 @@ public class DataReaderFactory {
 
     public AbstractReader buildReader(final AbstractReader reader,
                                       final BitInputStream bitInputStream, final Map<Integer, InputStream> inputMap,
-                                      final CompressionHeader header, final int refId) throws IllegalArgumentException,
-            IllegalAccessException {
+                                      final CompressionHeader header, final int refId) throws IllegalArgumentException {
         reader.captureReadNames = header.readNamesIncluded;
         reader.refId = refId;
         reader.APDelta = header.APDelta;
@@ -60,8 +60,12 @@ public class DataReaderFactory {
                 if (header.encodingMap.get(key) == null) {
                     log.debug("Encoding not found for key: " + key);
                 } else {
-                    field.set(reader,
-                            createReader(type, header.encodingMap.get(key), bitInputStream, inputMap));
+                    try {
+                        field.set(reader,
+                                createReader(type, header.encodingMap.get(key), bitInputStream, inputMap));
+                    } catch (IllegalAccessException e) {
+                        throw new CRAMException(e);
+                    }
                 }
             }
 
@@ -77,7 +81,11 @@ public class DataReaderFactory {
                                 inputMap);
                         map.put(key, tagReader);
                     }
-                    field.set(reader, map);
+                    try {
+                        field.set(reader, map);
+                    } catch (IllegalAccessException e) {
+                        throw new CRAMException(e);
+                    }
                 }
             }
         }

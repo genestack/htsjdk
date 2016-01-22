@@ -165,8 +165,6 @@ public class CRAMIndexer {
 
         } catch (final IOException e) {
             throw new RuntimeIOException("Failed to read cram container", e);
-        } catch (final IllegalAccessException e) {
-            throw new SAMException("Failed to read cram container", e);
         }
     }
 

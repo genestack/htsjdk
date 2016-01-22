@@ -78,7 +78,7 @@ public class ContainerParser {
         return records;
     }
 
-    public Map<Integer, AlignmentSpan> getReferences(final Container container, final ValidationStringency validationStringency) throws IOException, IllegalAccessException {
+    public Map<Integer, AlignmentSpan> getReferences(final Container container, final ValidationStringency validationStringency) throws IOException {
         final Map<Integer, AlignmentSpan> containerSpanMap  = new HashMap<>();
         for (final Slice slice : container.slices) {
             addAllSpans(containerSpanMap, getReferences(slice, container.header, validationStringency));
@@ -101,7 +101,7 @@ public class ContainerParser {
         return spanMap;
     }
 
-    Map<Integer, AlignmentSpan> getReferences(final Slice slice, final CompressionHeader header, final ValidationStringency validationStringency) throws IllegalAccessException, IOException {
+    Map<Integer, AlignmentSpan> getReferences(final Slice slice, final CompressionHeader header, final ValidationStringency validationStringency) throws IOException {
         final Map<Integer, AlignmentSpan> spanMap = new HashMap<>();
         switch (slice.sequenceId) {
             case SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX:
