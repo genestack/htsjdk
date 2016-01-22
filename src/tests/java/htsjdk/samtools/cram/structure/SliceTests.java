@@ -5,8 +5,6 @@ import htsjdk.samtools.util.SequenceUtil;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-import java.util.Arrays;
-
 /**
  * Created by vadim on 07/12/2015.
  */
@@ -15,7 +13,7 @@ public class SliceTests {
     public void testUnmappedValidateRef() {
         Slice slice = new Slice();
         slice.alignmentStart= SAMRecord.NO_ALIGNMENT_START;
-        slice.sequenceId = Slice.UNMAPPED_OR_NO_REFERENCE;
+        slice.sequenceId = SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX;
 
         Assert.assertTrue(slice.validateRefMD5(null));
         Assert.assertTrue(slice.validateRefMD5(new byte[0]));

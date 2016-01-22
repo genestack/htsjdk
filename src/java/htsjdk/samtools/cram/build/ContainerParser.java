@@ -104,8 +104,8 @@ public class ContainerParser {
     Map<Integer, AlignmentSpan> getReferences(final Slice slice, final CompressionHeader header, final ValidationStringency validationStringency) throws IllegalAccessException, IOException {
         final Map<Integer, AlignmentSpan> spanMap = new HashMap<>();
         switch (slice.sequenceId) {
-            case Slice.UNMAPPED_OR_NO_REFERENCE:
-                spanMap.put(Slice.UNMAPPED_OR_NO_REFERENCE, AlignmentSpan.UNMAPPED_SPAN);
+            case SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX:
+                spanMap.put(SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX, AlignmentSpan.UNMAPPED_SPAN);
                 break;
             case Slice.MULTI_REFERENCE:
                 final DataReaderFactory dataReaderFactory = new DataReaderFactory();

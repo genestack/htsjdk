@@ -44,7 +44,7 @@ public class ContainerFactoryTest {
         Assert.assertNotNull(container);
         Assert.assertEquals(container.nofRecords, records.size());
 
-        assertContainerAlignmentBoundaries(container, Slice.UNMAPPED_OR_NO_REFERENCE, Slice.NO_ALIGNMENT_START, Slice.NO_ALIGNMENT_SPAN);
+        assertContainerAlignmentBoundaries(container, SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX, Slice.NO_ALIGNMENT_START, Slice.NO_ALIGNMENT_SPAN);
     }
 
     @Test
@@ -126,7 +126,7 @@ public class ContainerFactoryTest {
         Assert.assertEquals(container.alignmentStart, alignmentStart);
         Assert.assertEquals(container.alignmentSpan, alignmentSpan);
 
-        if (sequenceId == Slice.UNMAPPED_OR_NO_REFERENCE || sequenceId == Slice.MULTI_REFERENCE) {
+        if (sequenceId == SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX || sequenceId == Slice.MULTI_REFERENCE) {
             Assert.assertEquals(container.alignmentStart, Slice.NO_ALIGNMENT_START);
             Assert.assertEquals(container.alignmentSpan, Slice.NO_ALIGNMENT_SPAN);
         }

@@ -69,13 +69,13 @@ public class ContainerParserTest {
 
         Container container = factory.buildContainer(records);
         Assert.assertEquals(container.nofRecords, 10);
-        Assert.assertEquals(container.sequenceId, Slice.UNMAPPED_OR_NO_REFERENCE);
+        Assert.assertEquals(container.sequenceId, SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX);
 
         ContainerParser parser = new ContainerParser(samFileHeader);
         final Map<Integer, AlignmentSpan> referenceSet = parser.getReferences(container, ValidationStringency.STRICT);
         Assert.assertNotNull(referenceSet);
         Assert.assertEquals(referenceSet.size(), 1);
-        Assert.assertTrue(referenceSet.containsKey(Slice.UNMAPPED_OR_NO_REFERENCE));
+        Assert.assertTrue(referenceSet.containsKey(SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX));
 
     }
 
@@ -113,7 +113,7 @@ public class ContainerParserTest {
         final Map<Integer, AlignmentSpan> referenceSet = parser.getReferences(container, ValidationStringency.STRICT);
         Assert.assertNotNull(referenceSet);
         Assert.assertEquals(referenceSet.size(), 2);
-        Assert.assertTrue(referenceSet.containsKey(Slice.UNMAPPED_OR_NO_REFERENCE));
+        Assert.assertTrue(referenceSet.containsKey(SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX));
         Assert.assertTrue(referenceSet.containsKey(0));
     }
 
@@ -150,7 +150,7 @@ public class ContainerParserTest {
         final Map<Integer, AlignmentSpan> referenceSet = parser.getReferences(container, ValidationStringency.STRICT);
         Assert.assertNotNull(referenceSet);
         Assert.assertEquals(referenceSet.size(), 10);
-        Assert.assertTrue(referenceSet.containsKey(Slice.UNMAPPED_OR_NO_REFERENCE));
+        Assert.assertTrue(referenceSet.containsKey(SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX));
         for (int i=0; i<9; i++) {
             Assert.assertTrue(referenceSet.containsKey(i));
             AlignmentSpan span = referenceSet.get(i);

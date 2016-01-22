@@ -20,6 +20,7 @@ package htsjdk.samtools.cram.structure;
 import htsjdk.samtools.SAMBinaryTagAndUnsignedArrayValue;
 import htsjdk.samtools.SAMBinaryTagAndValue;
 import htsjdk.samtools.SAMException;
+import htsjdk.samtools.SAMRecord;
 import htsjdk.samtools.SAMTagUtil;
 import htsjdk.samtools.util.Log;
 import htsjdk.samtools.util.SequenceUtil;
@@ -33,7 +34,6 @@ import java.util.Map;
  * CRAM slice is a logical union of blocks into for example alignment slices.
  */
 public class Slice {
-    public static final int UNMAPPED_OR_NO_REFERENCE = -1;
     public static final int MULTI_REFERENCE = -2;
     public static final int NO_ALIGNMENT_START = -1;
     public static final int NO_ALIGNMENT_SPAN = 0;
@@ -68,7 +68,7 @@ public class Slice {
     public SAMBinaryTagAndValue sliceTags;
 
     private void alignmentBordersSanityCheck(final byte[] ref) {
-        if (sequenceId == UNMAPPED_OR_NO_REFERENCE) return ;
+        if (sequenceId == SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX) return ;
         if (alignmentStart > 0 && sequenceId >= 0 && ref == null) throw new NullPointerException("Mapped slice reference is null.");
 
         if (alignmentStart > ref.length) {
@@ -87,7 +87,7 @@ public class Slice {
         if(sequenceId == Slice.MULTI_REFERENCE)
             throw new SAMException("Cannot verify a slice with multiple references on a single reference.");
 
-        if (sequenceId == Slice.UNMAPPED_OR_NO_REFERENCE) return true;
+        if (sequenceId == SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX) return true;
 
         alignmentBordersSanityCheck(ref);
 
@@ -246,7 +246,7 @@ public class Slice {
     }
 
     public boolean isMapped() {
-        return sequenceId > Slice.UNMAPPED_OR_NO_REFERENCE;
+        return sequenceId > SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX;
     }
 
     public boolean isMultiref() {

@@ -57,7 +57,6 @@ import java.io.OutputStream;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.SortedSet;
 import java.util.TreeSet;
 
 /**
@@ -134,7 +133,7 @@ public class CRAMIndexer {
                     /**
                      * Unmapped span must be processed after mapped spans:
                      */
-                    AlignmentSpan unmappedSpan = refSet.remove(Slice.UNMAPPED_OR_NO_REFERENCE);
+                    AlignmentSpan unmappedSpan = refSet.remove(SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX);
                     for (final int refId : new TreeSet<>(refSet.keySet())) {
                         final AlignmentSpan span = refSet.get(refId);
                         fakeSlice.sequenceId = refId;
@@ -149,7 +148,7 @@ public class CRAMIndexer {
                     }
                     if (unmappedSpan != null) {
                         final AlignmentSpan span = unmappedSpan;
-                        fakeSlice.sequenceId = Slice.UNMAPPED_OR_NO_REFERENCE;
+                        fakeSlice.sequenceId = SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX;
                         fakeSlice.containerOffset = slice.containerOffset;
                         fakeSlice.offset = slice.offset;
                         fakeSlice.index = slice.index;
@@ -453,7 +452,7 @@ public class CRAMIndexer {
                 if (null != log) {
                     String sequenceName;
                     switch (container.sequenceId) {
-                        case Slice.UNMAPPED_OR_NO_REFERENCE:
+                        case SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX:
                             sequenceName = "?";
                             break;
                         case Slice.MULTI_REFERENCE:

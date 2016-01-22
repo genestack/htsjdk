@@ -30,7 +30,6 @@ import htsjdk.samtools.cram.structure.CramHeader;
 import htsjdk.samtools.cram.structure.Slice;
 import htsjdk.samtools.seekablestream.SeekableStream;
 import htsjdk.samtools.util.Log;
-import htsjdk.samtools.util.RuntimeEOFException;
 import htsjdk.samtools.util.SequenceUtil;
 
 import java.io.IOException;
@@ -163,9 +162,9 @@ public class CRAMIterator implements SAMRecordIterator {
 
         parser.getRecords(container, cramRecords, validationStringency);
 
-        if (container.sequenceId == Slice.UNMAPPED_OR_NO_REFERENCE) {
+        if (container.sequenceId == SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX) {
             refs = new byte[]{};
-            prevSeqId = Slice.UNMAPPED_OR_NO_REFERENCE;
+            prevSeqId = SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX;
         } else if (container.sequenceId == Slice.MULTI_REFERENCE) {
             refs = null;
             prevSeqId = Slice.MULTI_REFERENCE;

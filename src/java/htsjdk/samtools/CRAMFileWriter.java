@@ -38,7 +38,6 @@ import htsjdk.samtools.util.StringLineReader;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -168,7 +167,7 @@ public class CRAMFileWriter extends SAMFileWriterImpl {
         }
 
         // make unmapped reads don't get into multiref containers:
-        if (refSeqIndex != Slice.UNMAPPED_OR_NO_REFERENCE && nextRecord.getReferenceIndex() == SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX) {
+        if (refSeqIndex != SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX && nextRecord.getReferenceIndex() == SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX) {
             return true;
         }
 
@@ -242,7 +241,7 @@ public class CRAMFileWriter extends SAMFileWriterImpl {
                 }
                 refs = new byte[0];
                 break;
-            case Slice.UNMAPPED_OR_NO_REFERENCE:
+            case SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX:
                 refs = new byte[0];
                 break;
             default:

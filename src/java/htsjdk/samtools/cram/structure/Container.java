@@ -17,13 +17,15 @@
  */
 package htsjdk.samtools.cram.structure;
 
+import htsjdk.samtools.SAMRecord;
+
 public class Container {
     // container header as defined in the specs:
     /**
      * Byte size of the content excluding header.
      */
     public int containerByteSize;
-    public int sequenceId = Slice.UNMAPPED_OR_NO_REFERENCE;
+    public int sequenceId = SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX;
     public int alignmentStart = Slice.NO_ALIGNMENT_START;
     public int alignmentSpan = Slice.NO_ALIGNMENT_SPAN;
     public int nofRecords = 0;
