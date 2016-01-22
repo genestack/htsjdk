@@ -17,6 +17,7 @@ package htsjdk.samtools.cram.encoding.reader;
 
 import htsjdk.samtools.SAMRecord;
 import htsjdk.samtools.ValidationStringency;
+import htsjdk.samtools.cram.CRAMException;
 import htsjdk.samtools.cram.encoding.readfeatures.BaseQualityScore;
 import htsjdk.samtools.cram.encoding.readfeatures.Bases;
 import htsjdk.samtools.cram.encoding.readfeatures.Deletion;
@@ -228,8 +229,7 @@ public class RefSeqIdReader extends AbstractReader {
 			recordCounter++;
 
 		} catch (final Exception e) {
-			System.err.printf("Failed at record %d. \n", recordCounter);
-			throw new RuntimeException(e);
+			throw new CRAMException(e);
 		}
 
 		if (!spans.containsKey(cramRecord.sequenceId)) {
