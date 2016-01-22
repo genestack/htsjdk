@@ -57,6 +57,8 @@ import java.io.OutputStream;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.SortedSet;
+import java.util.TreeSet;
 
 /**
  * Class for both constructing BAM index content and writing it out.
@@ -113,7 +115,7 @@ public class CRAMIndexer {
      *
      * @param container container to be indexed
      */
-    public void processContainer(final Container container) {
+    public void processContainer(final Container container, final ValidationStringency validationStringency) {
         try {
             if (container == null || container.isEOF()) {
                 return;
@@ -125,19 +127,35 @@ public class CRAMIndexer {
                 slice.index = sliceIndex++;
                 if (slice.isMultiref()) {
                     final ContainerParser parser = new ContainerParser(indexBuilder.bamHeader);
-                    final Map<Integer, AlignmentSpan> refSet = parser.getReferences(container);
+                    final Map<Integer, AlignmentSpan> refSet = parser.getReferences(container, validationStringency);
                     final Slice fakeSlice = new Slice();
                     slice.containerOffset = container.offset;
                     slice.index = sliceIndex++;
-                    for (final int refId : refSet.keySet()) {
-                        fakeSlice.sequenceId = refId;
+                    /**
+                     * Unmapped span must be processed after mapped spans:
+                     */
+                    AlignmentSpan unmappedSpan = refSet.remove(Slice.UNMAPPED_OR_NO_REFERENCE);
+                    for (final int refId : new TreeSet<>(refSet.keySet())) {
                         final AlignmentSpan span = refSet.get(refId);
+                        fakeSlice.sequenceId = refId;
                         fakeSlice.containerOffset = slice.containerOffset;
                         fakeSlice.offset = slice.offset;
                         fakeSlice.index = slice.index;
 
                         fakeSlice.alignmentStart = span.getStart();
                         fakeSlice.alignmentSpan = span.getSpan();
+                        fakeSlice.nofRecords = span.getCount();
+                        processSingleReferenceSlice(fakeSlice);
+                    }
+                    if (unmappedSpan != null) {
+                        final AlignmentSpan span = unmappedSpan;
+                        fakeSlice.sequenceId = Slice.UNMAPPED_OR_NO_REFERENCE;
+                        fakeSlice.containerOffset = slice.containerOffset;
+                        fakeSlice.offset = slice.offset;
+                        fakeSlice.index = slice.index;
+
+                        fakeSlice.alignmentStart = SAMRecord.NO_ALIGNMENT_START;
+                        fakeSlice.alignmentSpan = 0;
                         fakeSlice.nofRecords = span.getCount();
                         processSingleReferenceSlice(fakeSlice);
                     }
@@ -409,7 +427,7 @@ public class CRAMIndexer {
      * @param output File for output index file
      * @param log    optional {@link htsjdk.samtools.util.Log} to output progress
      */
-    public static void createIndex(final SeekableStream stream, final File output, final Log log) throws IOException {
+    public static void createIndex(final SeekableStream stream, final File output, final Log log, final ValidationStringency validationStringency) throws IOException {
 
         final CramHeader cramHeader = CramIO.readCramHeader(stream);
         if (cramHeader.getSamFileHeader().getSortOrder() != SAMFileHeader.SortOrder.coordinate) {
@@ -430,7 +448,7 @@ public class CRAMIndexer {
 
                 container.offset = offset;
 
-                indexer.processContainer(container);
+                indexer.processContainer(container, validationStringency);
 
                 if (null != log) {
                     String sequenceName;
