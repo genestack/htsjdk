@@ -233,8 +233,8 @@ public class CramFileWriterTest {
 
     @Test
     public void testCRAMQuerySort() throws IOException {
-        final File input = new File("testdata/htsjdk/samtools/count_reads.cram");
-        final File reference = new File("testdata/htsjdk/samtools/count_reads.fasta");
+        final File input = new File("testdata/htsjdk/samtools/cram_query_sorted.cram");
+        final File reference = new File("testdata/htsjdk/samtools/cram_query_sorted.fasta");
         final File outputFile = File.createTempFile("tmp.", ".cram");
 
         try (final SamReader reader = SamReaderFactory.makeDefault().referenceSequence(reference).open(input);
@@ -252,7 +252,7 @@ public class CramFileWriterTest {
                     continue;
                 }
                 // test if the read names are sorted alphabetically:
-                Assert.assertTrue(rec.getReadName().compareTo(prevName) >=0);
+                Assert.assertTrue(rec.getReadName().compareTo(prevName) >= 0);
             }
         }
 
