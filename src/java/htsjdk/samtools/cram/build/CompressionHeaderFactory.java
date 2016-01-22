@@ -54,6 +54,7 @@ import java.util.TreeMap;
 public class CompressionHeaderFactory {
     private static final int TAG_VALUE_BUFFER_SIZE = 1024 * 1024;
     public static final int BYTE_SPACE_SIZE = 256;
+    public static final int ALL_BYTES_USED = -1;
     private final Map<Integer, EncodingDetails> bestEncodings = new HashMap<>();
     private final ByteArrayOutputStream baosForTagValues;
 
@@ -172,7 +173,7 @@ public class CompressionHeaderFactory {
                 for (final ReadFeature recordFeature : record.readFeatures) {
                     if (recordFeature.getOperator() == Substitution.operator) {
                         final Substitution substitution = ((Substitution) recordFeature);
-                        if (substitution.getCode() == -1) {
+                        if (substitution.getCode() == Substitution.NO_CODE) {
                             final byte refBase = substitution.getReferenceBase();
                             final byte base = substitution.getBase();
                             substitution.setCode(substitutionMatrix.code(refBase, base));
@@ -384,7 +385,7 @@ public class CompressionHeaderFactory {
             if (usage[i] == 0)
                 return i;
         }
-        return -1;
+        return ALL_BYTES_USED;
     }
 
     static class ByteSizeRange {
@@ -457,7 +458,7 @@ public class CompressionHeaderFactory {
                 final int minSize_threshold_ForByteArrayStopEncoding = 100;
                 if (stats.min > minSize_threshold_ForByteArrayStopEncoding) {
                     final int unusedByte = getUnusedByte(data);
-                    if (unusedByte > -1) {
+                    if (unusedByte > ALL_BYTES_USED) {
                         details.params = ByteArrayStopEncoding.toParam((byte) unusedByte, tagID);
                         return details;
                     }
