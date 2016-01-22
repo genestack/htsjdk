@@ -180,11 +180,7 @@ public class ContainerFactory {
         for (final CramCompressionRecord record : records) {
             record.alignmentDelta = record.alignmentStart - prevAlStart;
             prevAlStart = record.alignmentStart;
-            try {
-                writer.write(record);
-            } catch (ArrayIndexOutOfBoundsException e) {
-                e.printStackTrace();
-            }
+            writer.write(record);
         }
 
         bitOutputStream.close();
