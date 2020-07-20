@@ -23,12 +23,14 @@
  */
 package htsjdk.tribble.index.linear;
 
+import htsjdk.samtools.util.IOUtil;
 import htsjdk.tribble.Feature;
 import htsjdk.tribble.index.Block;
 import htsjdk.tribble.index.Index;
 import htsjdk.tribble.index.TribbleIndexCreator;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedList;
 
@@ -38,25 +40,33 @@ import java.util.LinkedList;
  * @author jrobinso
  */
 public class LinearIndexCreator  extends TribbleIndexCreator {
-    public static int DEFAULT_BIN_WIDTH = 8000;
+    public static final int DEFAULT_BIN_WIDTH = 8000;
     // the set bin width
     private int binWidth = DEFAULT_BIN_WIDTH;
 
     // the input file
-    private final File inputFile;
+    private final Path inputFile;
 
     private final LinkedList<LinearIndex.ChrIndex> chrList = new LinkedList<LinearIndex.ChrIndex>();
     private int longestFeature= 0;
 
     private final ArrayList<Block> blocks = new ArrayList<Block>();
 
-    public LinearIndexCreator(final File inputFile, final int binSize) {
-        this.inputFile = inputFile;
+    public LinearIndexCreator(final Path inputPath, final int binSize) {
+        this.inputFile = inputPath;
         binWidth = binSize;
     }
 
+    public LinearIndexCreator(final File inputFile, final int binSize) {
+        this(IOUtil.toPath(inputFile), binSize);
+    }
+
     public LinearIndexCreator(final File inputFile) {
-        this(inputFile, DEFAULT_BIN_WIDTH);
+        this(IOUtil.toPath(inputFile));
+    }
+
+    public LinearIndexCreator(final Path inputPath) {
+        this(inputPath, DEFAULT_BIN_WIDTH);
     }
 
     /**
@@ -64,16 +74,17 @@ public class LinearIndexCreator  extends TribbleIndexCreator {
      * @param feature the feature, from which we use the contig, start, and stop
      * @param filePosition the position of the file at the BEGINNING of the current feature
      */
+    @Override
     public void addFeature(final Feature feature, final long filePosition) {
         // fi we don't have a chrIndex yet, or if the last one was for the previous contig, create a new one
-        if (chrList.isEmpty() || !chrList.getLast().getName().equals(feature.getChr())) {
+        if (chrList.isEmpty() || !chrList.getLast().getName().equals(feature.getContig())) {
             // if we're creating a new chrIndex (not the first), make sure to dump the blocks to the old chrIndex
             if (!chrList.isEmpty())
                 for (int x = 0; x < blocks.size(); x++) {
                     blocks.get(x).setEndPosition((x + 1 == blocks.size()) ? filePosition : blocks.get(x + 1).getStartPosition());
                     chrList.getLast().addBlock(blocks.get(x));
                 }
-            chrList.add(new LinearIndex.ChrIndex(feature.getChr(),binWidth));
+            chrList.add(new LinearIndex.ChrIndex(feature.getContig(),binWidth));
             blocks.clear();
 
             // Add the first block
@@ -97,6 +108,7 @@ public class LinearIndexCreator  extends TribbleIndexCreator {
      * @param finalFilePosition the final file position, for indexes that have to close out with the final position
      * @return an Index object
      */
+    @Override
     public Index finalizeIndex(final long finalFilePosition) {
         if (finalFilePosition == 0)
             throw new IllegalArgumentException("finalFilePosition != 0, -> " + finalFilePosition);

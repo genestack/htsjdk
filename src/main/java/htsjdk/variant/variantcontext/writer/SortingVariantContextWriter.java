@@ -29,7 +29,11 @@ import htsjdk.variant.variantcontext.VariantContext;
 
 /**
  * this class writes VCF files, allowing records to be passed in unsorted (up to a certain genomic distance away)
+ *
+ * @deprecated 9/2017, this class is completely untested and unsupported, there is no replacement at this time
+ * if you use this class please file an issue on github or it will be removed at some point in the future
  */
+@Deprecated
 public class SortingVariantContextWriter extends SortingVariantContextWriterBase {
 
     // the maximum START distance between records that we'll cache
@@ -51,6 +55,7 @@ public class SortingVariantContextWriter extends SortingVariantContextWriterBase
         this(innerWriter, maxCachingStartDistance, false); // by default, don't own inner
     }
 
+    @Override
     protected void noteCurrentRecord(VariantContext vc) {
         super.noteCurrentRecord(vc); // first, check for errors
 

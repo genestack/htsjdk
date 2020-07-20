@@ -1,11 +1,14 @@
 package htsjdk.samtools;
 
+import htsjdk.HtsjdkTest;
 import htsjdk.samtools.cram.CRAIEntry;
 import htsjdk.samtools.cram.build.CramContainerIterator;
 import htsjdk.samtools.cram.ref.ReferenceSource;
+import htsjdk.samtools.cram.structure.CRAMEncodingStrategy;
 import htsjdk.samtools.reference.FakeReferenceSequenceFile;
 import htsjdk.samtools.seekablestream.ByteArraySeekableStream;
 import htsjdk.samtools.seekablestream.SeekableFileStream;
+import htsjdk.samtools.seekablestream.SeekableStream;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -17,85 +20,54 @@ import java.util.List;
  * Companion to CRAMBAIIndexerTest, for testing CRAI indices created on cram
  * streams;
  */
-public class CRAMCRAIIndexerTest {
+public class CRAMCRAIIndexerTest extends HtsjdkTest {
 
     @Test
     public void testCRAIIndexerFromContainer() throws IOException {
-        final File CRAMFile = new File("src/test/resources/htsjdk/samtools/cram/test2.cram");
-        final File refFile = new File("src/test/resources/htsjdk/samtools/cram/test2.fa");
-        ReferenceSource refSource = new ReferenceSource(refFile);
-        CRAMFileReader reader = new CRAMFileReader(
-                CRAMFile,
-                null,
-                refSource,
-                ValidationStringency.STRICT);
-        SAMFileHeader samHeader = reader.getFileHeader();
-        Iterator<SAMRecord> it = reader.getIterator();
-        while(it.hasNext()) {
-            SAMRecord samRec = it.next();
-        }
-
-        reader.close();
-
-        FileInputStream fis = new FileInputStream(CRAMFile);
-        CramContainerIterator cit = new CramContainerIterator(fis);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-
-        CRAMCRAIIndexer craiIndexer = new CRAMCRAIIndexer(bos, samHeader);
-        while (cit.hasNext()) {
-            craiIndexer.processContainer(cit.next());
-        }
-        craiIndexer.finish();
-        bos.close();
-
-        List<CRAIEntry> craiEntries = CRAMCRAIIndexer.readIndex(new ByteArrayInputStream(bos.toByteArray())).getCRAIEntries();
-        Assert.assertEquals(craiEntries.size(), 1);
+        testCRAIIndexer(this::fromContainer);
     }
 
     @Test
     public void testCRAIIndexerFromStream() throws IOException {
+        testCRAIIndexer(this::fromStream);
+    }
+
+    private void testCRAIIndexer(Index index) throws IOException {
         final File CRAMFile = new File("src/test/resources/htsjdk/samtools/cram/test2.cram");
-        final File refFile = new File("src/test/resources/htsjdk/samtools/cram/test2.fa");
-        ReferenceSource refSource = new ReferenceSource(refFile);
 
-        // get the header to use
-        CRAMFileReader reader = new CRAMFileReader(
-                CRAMFile,
-                null,
-                refSource,
-                ValidationStringency.STRICT);
-        SAMFileHeader samHeader = reader.getFileHeader();
-        reader.close();
-
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        CRAMCRAIIndexer craiIndexer = new CRAMCRAIIndexer(bos, samHeader);
-        craiIndexer.writeIndex(new SeekableFileStream(CRAMFile), bos);
-
-        List<CRAIEntry> craiEntries = CRAMCRAIIndexer.readIndex(new ByteArrayInputStream(bos.toByteArray())).getCRAIEntries();
-        Assert.assertEquals(craiEntries.size(), 1);
+        try (final InputStream indexStream = new ByteArrayInputStream(index.getIndex(CRAMFile))) {
+            final List<CRAIEntry> craiEntries = CRAMCRAIIndexer.readIndex(indexStream).getCRAIEntries();
+            Assert.assertEquals(craiEntries.size(), 1);
+        }
     }
 
     @Test
-    public void testMultiRefContainer() throws IOException, IllegalAccessException {
-        SAMFileHeader samFileHeader = new SAMFileHeader();
+    public void testMultiRefContainer() throws IOException {
+        final SAMFileHeader samFileHeader = new SAMFileHeader();
         samFileHeader.setSortOrder(SAMFileHeader.SortOrder.coordinate);
-        
+
         samFileHeader.addSequence(new SAMSequenceRecord("1", 10));
         samFileHeader.addSequence(new SAMSequenceRecord("2", 10));
         samFileHeader.addSequence(new SAMSequenceRecord("3", 10));
 
-        ReferenceSource source = new ReferenceSource(new FakeReferenceSequenceFile(samFileHeader.getSequenceDictionary().getSequences()));
+        final ReferenceSource source = new ReferenceSource(new FakeReferenceSequenceFile(samFileHeader.getSequenceDictionary().getSequences()));
 
-        ByteArrayOutputStream cramBAOS = new ByteArrayOutputStream();
-        ByteArrayOutputStream indexBAOS = new ByteArrayOutputStream();
+        byte[] cramBytes;
+        byte[] indexBytes;
 
-        // force the containers to be small to ensure there are 2
-        int originalDefaultSize = CRAMContainerStreamWriter.DEFAULT_RECORDS_PER_SLICE;
-        CRAMContainerStreamWriter.DEFAULT_RECORDS_PER_SLICE = 3;
+        try (final ByteArrayOutputStream cramBAOS = new ByteArrayOutputStream();
+             final ByteArrayOutputStream indexBAOS = new ByteArrayOutputStream()) {
 
-        try {
-            CRAMContainerStreamWriter containerWriter = new CRAMContainerStreamWriter(cramBAOS, indexBAOS, source, samFileHeader, "test");
-            containerWriter.writeHeader(samFileHeader);
+            final CRAMContainerStreamWriter containerWriter = new CRAMContainerStreamWriter(
+                    // force the containers to be small to ensure there are 2
+                    // in order to set reads/slice to a small number, we must so the same for minimumSingleReferenceSliceSize
+                    new CRAMEncodingStrategy().setMinimumSingleReferenceSliceSize(3).setReadsPerSlice(3),
+                    source,
+                    samFileHeader,
+                    cramBAOS,
+                    new CRAMCRAIIndexer(indexBAOS, samFileHeader),
+                    "test");
+            containerWriter.writeHeader();
 
             containerWriter.writeAlignment(createSAMRecord(samFileHeader, 0, 0, 1));
             containerWriter.writeAlignment(createSAMRecord(samFileHeader, 1, 1, 2));
@@ -106,10 +78,9 @@ public class CRAMCRAIIndexerTest {
             containerWriter.writeAlignment(createSAMRecord(samFileHeader, 5, 2, 4));
 
             containerWriter.finish(true);
-        }
-        finally {
-            // failing to reset this can cause unrelated tests to fail if this test fails
-            CRAMContainerStreamWriter.DEFAULT_RECORDS_PER_SLICE = originalDefaultSize;
+
+            cramBytes = cramBAOS.toByteArray();
+            indexBytes = indexBAOS.toByteArray();
         }
 
         // These tests all fail due to https://github.com/samtools/htsjdk/issues/531
@@ -127,27 +98,40 @@ public class CRAMCRAIIndexerTest {
         //Assert.assertNotNull(metaData_2);
         //Assert.assertEquals(metaData_2.getAlignedRecordCount(), 2);
 
-        // NOTE: this test uses the default index format created by CRAMContainerStreamWriter
-        // which is currently .bai; when the
-        CRAMFileReader cramReader = new CRAMFileReader(
-                new ByteArraySeekableStream(cramBAOS.toByteArray()),
-                new ByteArraySeekableStream(indexBAOS.toByteArray()),
-                source,
-                ValidationStringency.DEFAULT_STRINGENCY
-        );
-        Assert.assertTrue(cramReader.hasIndex());
+        try (final InputStream cramStream = new ByteArraySeekableStream(cramBytes);
+             final SeekableStream indexStream = new ByteArraySeekableStream(indexBytes)) {
 
-        Iterator<SAMRecord> it = cramReader.query(new QueryInterval[]{new QueryInterval(0, 0, 5)}, false);
-        long count = getIteratorCount(it);
-        Assert.assertEquals(count, 1);
+            // NOTE: this test uses the default index format created by CRAMContainerStreamWriter
+            // which is currently .bai;
 
-        it = cramReader.query(new QueryInterval[]{new QueryInterval(1, 0, 5)}, false);
-        count = getIteratorCount(it);
-        Assert.assertEquals(count, 3);
+            CRAMFileReader cramReader = new CRAMFileReader(
+                    cramStream,
+                    indexStream,
+                    source,
+                    ValidationStringency.DEFAULT_STRINGENCY
+            );
+            Assert.assertTrue(cramReader.hasIndex());
 
-        it = cramReader.query(new QueryInterval[]{new QueryInterval(2, 0, 5)}, false);
-        count = getIteratorCount(it);
-        Assert.assertEquals(count, 2);
+            Iterator<SAMRecord> it = cramReader.query(new QueryInterval[]{new QueryInterval(0, 0, 5)}, false);
+            long count = getIteratorCount(it);
+            Assert.assertEquals(count, 1);
+
+            it = cramReader.query(new QueryInterval[]{new QueryInterval(1, 0, 5)}, false);
+            count = getIteratorCount(it);
+            Assert.assertEquals(count, 3);
+
+            it = cramReader.query(new QueryInterval[]{new QueryInterval(2, 0, 5)}, false);
+            count = getIteratorCount(it);
+            Assert.assertEquals(count, 2);
+        }
+    }
+
+    @Test(expectedExceptions = SAMException.class)
+    public void testRequireCoordinateSortOrder() {
+        SAMFileHeader header = new SAMFileHeader();
+        header.setSortOrder(SAMFileHeader.SortOrder.queryname);
+
+        new CRAMCRAIIndexer(new ByteArrayOutputStream(), header);
     }
 
     private static SAMRecord createSAMRecord(SAMFileHeader header, int recordIndex, int seqId, int start) {
@@ -163,12 +147,46 @@ public class CRAMCRAIIndexerTest {
         return record;
     }
 
-    @Test(expectedExceptions = SAMException.class)
-    public void testRequireCoordinateSortOrder() {
-        SAMFileHeader header = new SAMFileHeader();
-        header.setSortOrder(SAMFileHeader.SortOrder.queryname);
+    private interface Index {
+        byte[] getIndex(final File CRAMFile) throws IOException;
+    }
 
-        new CRAMCRAIIndexer(new ByteArrayOutputStream(), header);
+    private byte[] fromContainer(final File CRAMFile) throws IOException {
+        try (final FileInputStream fis = new FileInputStream(CRAMFile);
+             final ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+
+            final CRAMCRAIIndexer craiIndexer = new CRAMCRAIIndexer(bos, getSamFileHeader(CRAMFile));
+            final CramContainerIterator cit = new CramContainerIterator(fis);
+            while (cit.hasNext()) {
+                craiIndexer.processContainer(cit.next());
+            }
+            craiIndexer.finish();
+            bos.close();
+            return bos.toByteArray();
+        }
+    }
+
+    private byte[] fromStream(final File CRAMFile) throws IOException {
+        try (final ByteArrayOutputStream bos = new ByteArrayOutputStream();
+             final SeekableStream sfs = new SeekableFileStream(CRAMFile)) {
+
+            CRAMCRAIIndexer.writeIndex(sfs, bos);
+            return bos.toByteArray();
+        }
+    }
+
+    private SAMFileHeader getSamFileHeader(final File CRAMFile) throws IOException {
+        final File refFile = new File("src/test/resources/htsjdk/samtools/cram/auxf.fa");
+        final File indexFile = null;
+        final ReferenceSource refSource = new ReferenceSource(refFile);
+        final CRAMFileReader reader = new CRAMFileReader(
+                CRAMFile,
+                indexFile,
+                refSource,
+                ValidationStringency.STRICT);
+        final SAMFileHeader samHeader = reader.getFileHeader();
+        reader.close();
+        return samHeader;
     }
 
     private long getIteratorCount(Iterator<SAMRecord> it) {

@@ -28,6 +28,7 @@ package htsjdk.variant.vcf;
 import htsjdk.samtools.SAMSequenceRecord;
 import htsjdk.tribble.TribbleException;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -49,7 +50,7 @@ public class VCFContigHeaderLine extends VCFSimpleHeaderLine {
      * @param key            the key for this header line
      */
     public VCFContigHeaderLine(final String line, final VCFHeaderVersion version, final String key, final int contigIndex) {
-        super(line, version, key, null);
+        super(line, version, key, null, Collections.emptyList());
 	    if (contigIndex < 0) throw new TribbleException("The contig index is less than zero.");
         this.contigIndex = contigIndex;
     }
@@ -75,10 +76,23 @@ public class VCFContigHeaderLine extends VCFSimpleHeaderLine {
         return contigIndex;
     }
 
+    /**
+     * Get the SAMSequenceRecord that corresponds to this VCF header line.
+     * If the VCF header line does not have a length tag, the SAMSequenceRecord returned will be set to have a length of
+     * SAMSequenceRecord.UNKNOWN_SEQUENCE_LENGTH. Records with unknown length will match any record with the same name
+     * when evaluated by SAMSequenceRecord.isSameSequence.
+     * @return The SAMSequenceRecord containing the ID, length, assembly, and index of this contig. Returns null if the
+     * contig header line does not have a length.
+     */
 	public SAMSequenceRecord getSAMSequenceRecord() {
 		final String lengthString = this.getGenericFieldValue("length");
-		if (lengthString == null) throw new TribbleException("Contig " + this.getID() + " does not have a length field.");
-		final SAMSequenceRecord record = new SAMSequenceRecord(this.getID(), Integer.valueOf(lengthString));
+		final int length;
+		if (lengthString == null) {
+		    length = SAMSequenceRecord.UNKNOWN_SEQUENCE_LENGTH;
+        } else {
+		    length = Integer.parseInt(lengthString);
+        }
+		final SAMSequenceRecord record = new SAMSequenceRecord(this.getID(), length);
         record.setAssembly(this.getGenericFieldValue("assembly"));
 		record.setSequenceIndex(this.contigIndex);
 		return record;

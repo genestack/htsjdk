@@ -25,6 +25,7 @@
 
 package htsjdk.variant.vcf;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +41,9 @@ public class VCFSimpleHeaderLine extends VCFHeaderLine implements VCFIDHeaderLin
     private String name;
     private Map<String, String> genericFields = new LinkedHashMap<String, String>();
 
+    public static final String ID_ATTRIBUTE = "ID";
+    public static final String DESCRIPTION_ATTRIBUTE = "Description";
+
     /**
      * create a VCF filter header line
      *
@@ -50,8 +54,22 @@ public class VCFSimpleHeaderLine extends VCFHeaderLine implements VCFIDHeaderLin
     public VCFSimpleHeaderLine(String key, String name, String description) {
         super(key, "");
         Map<String, String> map = new LinkedHashMap<String, String>(1);
-        map.put("Description", description);
+        map.put(DESCRIPTION_ATTRIBUTE, description);
         initialize(name, map);
+    }
+
+    /**
+     * create a VCF info header line
+     * 
+     * @see #VCFSimpleHeaderLine(String, VCFHeaderVersion, String, List, List) VCFv4.2+ recommended tags support
+     *
+     * @param line      the header line
+     * @param version   the vcf header version
+     * @param key            the key for this header line
+     * @param expectedTagOrdering the tag ordering expected for this header line
+     */
+    public VCFSimpleHeaderLine(final String line, final VCFHeaderVersion version, final String key, final List<String> expectedTagOrdering) {
+        this(line, version, key, expectedTagOrdering, Collections.emptyList());
     }
 
     /**
@@ -61,14 +79,15 @@ public class VCFSimpleHeaderLine extends VCFHeaderLine implements VCFIDHeaderLin
      * @param version   the vcf header version
      * @param key            the key for this header line
      * @param expectedTagOrdering the tag ordering expected for this header line
+     * @param recommendedTags tags that are optional for this header line                            
      */
-    public VCFSimpleHeaderLine(final String line, final VCFHeaderVersion version, final String key, final List<String> expectedTagOrdering) {
-        this(key, VCFHeaderLineTranslator.parseLine(version, line, expectedTagOrdering));
+    public VCFSimpleHeaderLine(final String line, final VCFHeaderVersion version, final String key, final List<String> expectedTagOrdering, final List<String> recommendedTags) {
+        this(key, VCFHeaderLineTranslator.parseLine(version, line, expectedTagOrdering, recommendedTags));
     }
 
     public VCFSimpleHeaderLine(final String key, final Map<String, String> mapping) {
         super(key, "");
-        name = mapping.get("ID");
+        name = mapping.get(ID_ATTRIBUTE);
         initialize(name, mapping);
     }
 
@@ -92,9 +111,10 @@ public class VCFSimpleHeaderLine extends VCFHeaderLine implements VCFIDHeaderLin
         this.genericFields.putAll(genericFields);
     }
 
+    @Override
     protected String toStringEncoding() {
         Map<String, Object> map = new LinkedHashMap<String, Object>();
-        map.put("ID", name);
+        map.put(ID_ATTRIBUTE, name);
         map.putAll(genericFields);
         return getKey() + "=" + VCFHeaderLine.toStringEncoding(map);
     }
@@ -121,7 +141,16 @@ public class VCFSimpleHeaderLine extends VCFHeaderLine implements VCFIDHeaderLin
         return result;
     }
 
+    @Override
     public String getID() {
         return name;
     }
-}
+
+
+    /**
+     * @return a map of all pairs of fields and values in this header line
+     */
+    public Map<String, String> getGenericFields() {
+        return Collections.unmodifiableMap(genericFields);
+    }
+ }

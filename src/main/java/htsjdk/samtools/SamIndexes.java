@@ -3,6 +3,7 @@ package htsjdk.samtools;
 import htsjdk.samtools.cram.CRAIIndex;
 import htsjdk.samtools.seekablestream.SeekableBufferedStream;
 import htsjdk.samtools.seekablestream.SeekableStream;
+import htsjdk.samtools.util.FileExtensions;
 
 import java.io.BufferedInputStream;
 import java.io.File;
@@ -16,9 +17,10 @@ import java.net.URL;
  * Created by vadim on 14/08/2015.
  */
 public enum SamIndexes {
-    BAI(BAMIndex.BAMIndexSuffix, "BAI\1".getBytes()),
+    BAI(FileExtensions.BAI_INDEX, "BAI\1".getBytes()),
     // CRAI is gzipped text, so it's magic is same as {@link java.util.zip.GZIPInputStream.GZIP_MAGIC}
-    CRAI(CRAIIndex.CRAI_INDEX_SUFFIX, new byte[]{(byte) 0x1f, (byte) 0x8b});
+    CRAI(FileExtensions.CRAM_INDEX, new byte[]{(byte) 0x1f, (byte) 0x8b}),
+    CSI(FileExtensions.CSI, "CSI\1".getBytes());
 
     public final String fileNameSuffix;
     public final byte[] magic;
@@ -38,6 +40,9 @@ public enum SamIndexes {
         }
         if (url.getFile().toLowerCase().endsWith(CRAI.fileNameSuffix.toLowerCase())) {
             return CRAIIndex.openCraiFileAsBaiStream(url.openStream(), dictionary);
+        }
+        if (url.getFile().toLowerCase().endsWith(CSI.fileNameSuffix.toLowerCase())) {
+            return url.openStream();
         }
 
         return null;
@@ -61,6 +66,14 @@ public enum SamIndexes {
             bis.reset();
         }
 
+        bis.mark(CSI.magic.length);
+        if (doesStreamStartWith(bis, CSI.magic)) {
+            bis.reset();
+            return bis;
+        } else {
+            bis.reset();
+        }
+
         return null;
     }
 
@@ -78,6 +91,12 @@ public enum SamIndexes {
             return CRAIIndex.openCraiFileAsBaiStream(bis, dictionary);
         } else {
             bis.reset();
+        }
+
+        bis.seek(0);
+        if (doesStreamStartWith(bis, CSI.magic)) {
+            bis.seek(0);
+            return bis;
         }
 
         return null;

@@ -2,8 +2,8 @@ package htsjdk.samtools.cram.digest;
 
 import htsjdk.samtools.SAMBinaryTagAndValue;
 import htsjdk.samtools.SAMRecord;
-import htsjdk.samtools.SAMTagUtil;
-import htsjdk.samtools.cram.structure.CramCompressionRecord;
+import htsjdk.samtools.SAMTag;
+import htsjdk.samtools.cram.structure.CRAMCompressionRecord;
 import htsjdk.samtools.util.Log;
 
 import java.security.MessageDigest;
@@ -13,7 +13,7 @@ import java.util.EnumSet;
 import java.util.LinkedList;
 import java.util.List;
 
-public class ContentDigests {
+public final class ContentDigests {
     public static final EnumSet<KNOWN_DIGESTS> ALL = EnumSet
             .allOf(KNOWN_DIGESTS.class);
     public static final EnumSet<KNOWN_DIGESTS> CRC32 = EnumSet.of(
@@ -33,7 +33,7 @@ public class ContentDigests {
         final List<Digester> digesters = new LinkedList<ContentDigests.Digester>();
         SAMBinaryTagAndValue binaryTag = binaryTags;
         while (binaryTag != null) {
-            final String tagID = SAMTagUtil.getSingleton().makeStringTag(
+            final String tagID = SAMTag.makeStringTag(
                     binaryTag.tag);
             final KNOWN_DIGESTS hash;
             try {
@@ -56,19 +56,9 @@ public class ContentDigests {
             digester.add(record);
     }
 
-    public void add(final CramCompressionRecord record) {
+    public void add(final CRAMCompressionRecord record) {
         for (final Digester digester : digesters)
             digester.addCramRecord(record);
-    }
-
-    public void addSAMRecords(final Iterable<SAMRecord> records) {
-        for (final SAMRecord record : records)
-            add(record);
-    }
-
-    public void addCramRecords(final Iterable<CramCompressionRecord> records) {
-        for (final CramCompressionRecord record : records)
-            add(record);
     }
 
     public SAMBinaryTagAndValue getAsTags() {
@@ -131,14 +121,14 @@ public class ContentDigests {
             this.digest = digest;
             this.series = series;
             this.tagID = tagID;
-            this.tagCode = SAMTagUtil.getSingleton().makeBinaryTag(tagID);
+            this.tagCode = SAMTag.makeBinaryTag(tagID);
         }
 
         void add(final SAMRecord record) {
             digest.add(series.getBytes(record));
         }
 
-        void addCramRecord(final CramCompressionRecord record) {
+        void addCramRecord(final CRAMCompressionRecord record) {
             digest.add(series.getBytes(record));
         }
 

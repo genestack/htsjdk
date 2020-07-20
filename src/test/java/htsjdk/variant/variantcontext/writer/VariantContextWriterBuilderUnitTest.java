@@ -1,41 +1,53 @@
 /*
-* Copyright (c) 2014 The Broad Institute
-* 
-* Permission is hereby granted, free of charge, to any person
-* obtaining a copy of this software and associated documentation
-* files (the "Software"), to deal in the Software without
-* restriction, including without limitation the rights to use,
-* copy, modify, merge, publish, distribute, sublicense, and/or sell
-* copies of the Software, and to permit persons to whom the
-* Software is furnished to do so, subject to the following
-* conditions:
-* 
-* The above copyright notice and this permission notice shall be
-* included in all copies or substantial portions of the Software.
-* 
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
-* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
-* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
+ * Copyright (c) 2014 The Broad Institute
+ *
+ * Permission is hereby granted, free of charge, to any person
+ * obtaining a copy of this software and associated documentation
+ * files (the "Software"), to deal in the Software without
+ * restriction, including without limitation the rights to use,
+ * copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following
+ * conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+ * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+ * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+ * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 
 package htsjdk.variant.variantcontext.writer;
 
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
 import htsjdk.samtools.Defaults;
 import htsjdk.samtools.SAMSequenceDictionary;
 import htsjdk.samtools.util.BlockCompressedOutputStream;
-import htsjdk.samtools.util.RuntimeIOException;
-import htsjdk.tribble.AbstractFeatureReader;
+import htsjdk.samtools.util.FileExtensions;
 import htsjdk.tribble.Tribble;
-import htsjdk.tribble.util.TabixUtils;
 import htsjdk.variant.VariantBaseTest;
 import htsjdk.variant.variantcontext.writer.VariantContextWriterBuilder.OutputType;
+import htsjdk.variant.vcf.VCFHeader;
+import java.nio.file.FileSystem;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.util.Iterator;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import org.testng.Assert;
 import org.testng.annotations.BeforeSuite;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.io.*;
@@ -45,7 +57,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class VariantContextWriterBuilderUnitTest extends VariantBaseTest {
-	private static final String TEST_BASENAME = "htsjdk-test.VariantContextWriterBuilderUnitTest";
+    private static final String TEST_BASENAME = "htsjdk-test VariantContextWriterBuilderUnitTest";
     private SAMSequenceDictionary dictionary;
 
     private File vcf;
@@ -61,13 +73,13 @@ public class VariantContextWriterBuilderUnitTest extends VariantBaseTest {
     @BeforeSuite
     public void before() throws IOException {
         dictionary = createArtificialSequenceDictionary();
-        vcf = File.createTempFile(TEST_BASENAME, ".vcf");
+        vcf = File.createTempFile(TEST_BASENAME, FileExtensions.VCF);
         vcf.deleteOnExit();
         vcfIdx = Tribble.indexFile(vcf);
         vcfIdx.deleteOnExit();
         vcfMD5 = new File(vcf.getAbsolutePath() + ".md5");
         vcfMD5.deleteOnExit();
-        bcf = File.createTempFile(TEST_BASENAME, ".bcf");
+        bcf = File.createTempFile(TEST_BASENAME, FileExtensions.BCF);
         bcf.deleteOnExit();
         bcfIdx = Tribble.indexFile(bcf);
         bcfIdx.deleteOnExit();
@@ -76,12 +88,12 @@ public class VariantContextWriterBuilderUnitTest extends VariantBaseTest {
 
         blockCompressedVCFs = new ArrayList<File>();
         blockCompressedIndices = new ArrayList<File>();
-        for (final String extension : AbstractFeatureReader.BLOCK_COMPRESSED_EXTENSIONS) {
-            final File blockCompressed = File.createTempFile(TEST_BASENAME, ".vcf" + extension);
+        for (final String extension : FileExtensions.BLOCK_COMPRESSED) {
+            final File blockCompressed = File.createTempFile(TEST_BASENAME, FileExtensions.VCF + extension);
             blockCompressed.deleteOnExit();
             blockCompressedVCFs.add(blockCompressed);
 
-            final File index = new File(blockCompressed.getAbsolutePath() + TabixUtils.STANDARD_INDEX_EXTENSION);
+            final File index = new File(blockCompressed.getAbsolutePath() + FileExtensions.TABIX_INDEX);
             index.deleteOnExit();
             blockCompressedIndices.add(index);
         }
@@ -100,7 +112,7 @@ public class VariantContextWriterBuilderUnitTest extends VariantBaseTest {
         Assert.assertTrue(writer instanceof VCFWriter, "testSetOutputFile VCF File");
         Assert.assertFalse(((VCFWriter)writer).getOutputStream() instanceof BlockCompressedOutputStream, "testSetOutputFile VCF File was compressed");
 
-        for (final String extension : AbstractFeatureReader.BLOCK_COMPRESSED_EXTENSIONS) {
+        for (final String extension : FileExtensions.BLOCK_COMPRESSED) {
             final File file = File.createTempFile(TEST_BASENAME + ".setoutput", extension);
             file.deleteOnExit();
             final String filename = file.getAbsolutePath();
@@ -121,27 +133,47 @@ public class VariantContextWriterBuilderUnitTest extends VariantBaseTest {
         Assert.assertTrue(writer instanceof BCF2Writer, "testSetOutputFile BCF File");
     }
 
-    @Test
-    public void testDetermineOutputType() {
-        Assert.assertEquals(OutputType.VCF, VariantContextWriterBuilder.determineOutputTypeFromFile(this.vcf));
-        Assert.assertEquals(OutputType.BCF, VariantContextWriterBuilder.determineOutputTypeFromFile(this.bcf));
-        Assert.assertEquals(OutputType.VCF_STREAM, VariantContextWriterBuilder.determineOutputTypeFromFile(new File("/dev/stdout")));
-        for (final File f: this.blockCompressedVCFs) {
-            Assert.assertEquals(OutputType.BLOCK_COMPRESSED_VCF, VariantContextWriterBuilder.determineOutputTypeFromFile(f));
-        }
 
-        // Test symlinking
-        try {
-            final Path link = Files.createTempFile("foo.", ".tmp");
-            Files.deleteIfExists(link);
-            Files.createSymbolicLink(link, this.vcf.toPath());
-            link.toFile().deleteOnExit();
-            Assert.assertEquals(OutputType.VCF, VariantContextWriterBuilder.determineOutputTypeFromFile(link.toFile()));
-            link.toFile().delete();
+    @DataProvider
+    public Iterator<Object[]> getFilesAndOutputTypes(){
+        List<Object[]> cases = new ArrayList<>();
+        cases.add(new Object[]{OutputType.VCF, this.vcf});
+        cases.add(new Object[]{OutputType.BCF, this.bcf});
+        cases.add(new Object[]{OutputType.VCF_STREAM, new File("/dev/stdout")});
+        for (final File file: this.blockCompressedVCFs) {
+            cases.add( new Object[]{OutputType.BLOCK_COMPRESSED_VCF, file});
         }
-        catch (final IOException ioe) {
-            throw new RuntimeIOException(ioe);
-        }
+        return cases.iterator();
+    }
+
+    @Test(dataProvider = "getFilesAndOutputTypes")
+    public void testDetermineOutputType(OutputType expected, File file) {
+        Assert.assertEquals(VariantContextWriterBuilder.determineOutputTypeFromFile(file), expected);
+    }
+
+    @Test(dataProvider = "getFilesAndOutputTypes")
+    public void testDetermineOutputTypeWithSymlink(OutputType expected, File file) throws IOException {
+        final File link = setUpSymlink(file);
+        Assert.assertEquals(expected, VariantContextWriterBuilder.determineOutputTypeFromFile(link));
+    }
+
+    @Test(dataProvider = "getFilesAndOutputTypes")
+    public void testDetermineOutputTypeOnPath(OutputType expected, File file) {
+        Assert.assertEquals(VariantContextWriterBuilder.determineOutputTypeFromFile(file.toPath()), expected);
+    }
+
+    @Test(dataProvider = "getFilesAndOutputTypes")
+    public void testDetermineOutputTypeWithSymlinkOnPath(OutputType expected, File file) throws IOException {
+        final File link = setUpSymlink(file);
+        Assert.assertEquals(expected, VariantContextWriterBuilder.determineOutputTypeFromFile(link.toPath()));
+    }
+
+    private static File setUpSymlink(File target) throws IOException {
+        final Path link = Files.createTempFile("foo.", ".tmp");
+        Files.deleteIfExists(link);
+        Files.createSymbolicLink(link, target.toPath());
+        link.toFile().deleteOnExit();
+        return link.toFile();
     }
 
     @Test
@@ -314,6 +346,77 @@ public class VariantContextWriterBuilderUnitTest extends VariantBaseTest {
         }
     }
 
+    @Test
+    public void testIndexingOnTheFlyForPath() throws IOException {
+        final VariantContextWriterBuilder builder = new VariantContextWriterBuilder()
+                .setReferenceDictionary(dictionary)
+                .setOption(Options.INDEX_ON_THE_FLY);
+
+        try (FileSystem fs = Jimfs.newFileSystem("test", Configuration.unix())) {
+            final Path vcfPath = fs.getPath(vcf.getName());
+            final Path vcfIdxPath = Tribble.indexPath(vcfPath);
+            try(final VariantContextWriter writer = builder.setOutputPath(vcfPath).build())
+            {
+                //deliberately empty
+            }
+
+            Assert.assertTrue(Files.exists(vcfIdxPath),
+                    String.format("VCF index not created for %s / %s", vcfPath, vcfIdxPath));
+
+            final Path bcfPath = fs.getPath(bcf.getName());
+            final Path bcfIdxPath = Tribble.indexPath(bcfPath);
+            try(final VariantContextWriter writer = builder.setOutputPath(bcfPath).build()){
+                //deliberately empty
+            }
+            Assert.assertTrue(Files.exists(bcfIdxPath),
+                    String.format("BCF index not created for %s / %s", bcfPath, bcfIdxPath));
+
+            for (int i = 0; i < blockCompressedVCFs.size(); i++) {
+                final File blockCompressed = blockCompressedVCFs.get(i);
+                final File index = blockCompressedIndices.get(i);
+
+                final Path blockCompressedPath = fs.getPath(blockCompressed.getName());
+                final Path indexPath = fs.getPath(index.getName());
+
+                Assert.assertFalse(Files.exists(indexPath));
+                try(VariantContextWriter writer = builder.setOutputPath(blockCompressedPath).setReferenceDictionary(dictionary).build()){
+                    //deliberately empty
+                }
+                Assert.assertTrue(Files.exists(indexPath), String
+                        .format("Block-compressed index not created for %s / %s", blockCompressedPath, indexPath));
+
+                // Tabix does not require a reference dictionary.
+                // Tribble does: see tests testRefDictRequiredForVCFIndexOnTheFly / testRefDictRequiredForBCFIndexOnTheFly
+                Files.delete(indexPath);
+                try (VariantContextWriter writer = builder.setReferenceDictionary(null).build()){
+                    //deliberately empty
+                }
+                Assert.assertTrue(Files.exists(indexPath), String
+                        .format("Block-compressed index not created for %s / %s", blockCompressedPath, indexPath));
+            }
+        }
+    }
+
+    @Test(singleThreaded = true, groups = "unix")
+    public void testWriteToFifo() throws IOException, InterruptedException, ExecutionException {
+        long length = testWriteToPipe(this::innerWriteToFifo);
+        // length>0 means we wrote to the named pipe, so all is well.
+        Assert.assertTrue(length>0,
+                "VariantContextWriterBuilder did not write to the named pipe as it should.");
+    }
+
+    private void innerWriteToFifo(String pathToFifo) {
+        // Do not enable INDEX_OF_THE_FLY because that is not compatible with writing to a pipe.
+        final VariantContextWriterBuilder builder = new VariantContextWriterBuilder()
+                .clearOptions()
+                .setReferenceDictionary(dictionary);
+
+        Path vcfPath = Paths.get(pathToFifo);
+        VariantContextWriter writer = builder.setOutputPath(vcfPath).build();
+        writer.writeHeader(new VCFHeader());
+        writer.close();
+    }
+
     @Test(expectedExceptions = IllegalArgumentException.class)
     public void testInvalidImplicitFileType() {
         new VariantContextWriterBuilder()
@@ -337,23 +440,6 @@ public class VariantContextWriterBuilderUnitTest extends VariantBaseTest {
                 .setReferenceDictionary(dictionary)
                 .setOutputStream(new ByteArrayOutputStream())
                 .setOutputFileType(VariantContextWriterBuilder.OutputType.VCF)
-                .build();
-    }
-
-    @Test(expectedExceptions = IllegalArgumentException.class)
-    public void testUnsupportedIndexOnTheFlyForStreaming() {
-        new VariantContextWriterBuilder()
-                .setReferenceDictionary(dictionary)
-                .setOutputStream(new ByteArrayOutputStream())
-                .setOption(Options.INDEX_ON_THE_FLY)
-                .build();
-    }
-
-    @Test(expectedExceptions = IllegalArgumentException.class)
-    public void testUnsupportedDefaultIndexOnTheFlyForStreaming() {
-        new VariantContextWriterBuilder()
-                .setReferenceDictionary(dictionary)
-                .setOutputStream(new ByteArrayOutputStream())
                 .build();
     }
 
@@ -396,4 +482,79 @@ public class VariantContextWriterBuilderUnitTest extends VariantBaseTest {
             Assert.assertFalse(builder.isOptionSet(option)); // has been unset
         }
     }
+
+    @Test
+    public void testStdOut() {
+        final VariantContextWriter writer = new VariantContextWriterBuilder().setOutputFile("/dev/stdout").clearOptions().build();
+        OutputStream s = ((VCFWriter) writer).getOutputStream();
+        Assert.assertNotNull(((VCFWriter) writer).getOutputStream());
+        Assert.assertNotEquals(((VCFWriter) writer).getStreamName(), IndexingVariantContextWriter.DEFAULT_READER_NAME);
+    }
+
+    @Test(expectedExceptions = java.util.concurrent.ExecutionException.class)
+    public void demonstrateTestWriteToPipeDoesNotHang_1() throws Exception {
+        testWriteToPipe((str) -> {
+            throw new RuntimeException("oops");
+        });
+    }
+
+    @Test(expectedExceptions = java.util.concurrent.ExecutionException.class)
+    public void demonstrateTestWriteToPipeDoesNotHang_2() throws Exception {
+        long x = testWriteToPipe((str) -> {try{Files.write(Paths.get(str), "hello world".getBytes());}catch(IOException ex){}; throw new RuntimeException("oops");});
+    }
+
+
+    /**
+     * Create a named pipe, call "codeThatWritesToAFilename" with the name as argument,
+     * consumes the output as it's being run and returns the number of bytes that were output.
+     *
+     * This only works on Unix. Use this decoration for the tests that use it:
+     * @Test(singleThreaded = true, groups = "unix")
+     */
+    private static long testWriteToPipe(final Consumer<String> codeThatWritesToAFilename) throws IOException, InterruptedException, ExecutionException {
+        final File fifo = makeFifo();
+
+        // run the code in a separate thread
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            final Future<?> writeResult = executor.submit(() -> {
+                try {
+                    codeThatWritesToAFilename.accept(fifo.getAbsolutePath());
+                } catch (Exception x) {
+                    // Print to the console to aid debugging, in case the exception doesn't surface.
+                    x.printStackTrace();
+                    throw(x);
+                }
+            });
+
+            // drain the pipe with the output.
+            final Future<Integer> readResult = executor.submit(() -> {
+                try(final InputStream inputStream = Files.newInputStream(fifo.toPath(), StandardOpenOption.READ)) {
+                    int count = 0;
+                    while (inputStream.read() >= 0) {
+                        count++;
+                    }
+                    return count;
+                }
+            });
+
+            // done. If it was in error, the line below will throw the exception.
+            writeResult.get();
+            return readResult.get();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private static File makeFifo() throws IOException, InterruptedException {
+        // make the fifo
+        final File fifo = File.createTempFile("fifo.for.testWriteToPipe", "");
+        Assert.assertTrue(fifo.delete());
+        fifo.deleteOnExit();
+        final Process exec = new ProcessBuilder("mkfifo", fifo.getAbsolutePath()).start();
+        exec.waitFor(1, TimeUnit.MINUTES);
+        Assert.assertEquals(exec.exitValue(), 0, "mkfifo failed with exit code " + 0);
+        return fifo;
+    }
+
 }

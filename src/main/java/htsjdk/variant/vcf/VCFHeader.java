@@ -29,6 +29,7 @@ import htsjdk.samtools.SAMSequenceDictionary;
 import htsjdk.samtools.SAMSequenceRecord;
 import htsjdk.tribble.TribbleException;
 import htsjdk.tribble.util.ParsingUtils;
+import htsjdk.utils.ValidationUtils;
 import htsjdk.variant.utils.GeneralUtils;
 import htsjdk.variant.variantcontext.VariantContextComparator;
 
@@ -62,13 +63,20 @@ public class VCFHeader implements Serializable {
         CHROM, POS, ID, REF, ALT, QUAL, FILTER, INFO
     }
 
+    /**
+     * The VCF version for this header; once a header version is established, it can only be
+     * changed subject to version transition rules defined by
+     * {@link #validateVersionTransition(VCFHeaderVersion, VCFHeaderVersion)}
+     */
+    private VCFHeaderVersion vcfHeaderVersion;
+
     // the associated meta data
     private final Set<VCFHeaderLine> mMetaData = new LinkedHashSet<VCFHeaderLine>();
     private final Map<String, VCFInfoHeaderLine> mInfoMetaData = new LinkedHashMap<String, VCFInfoHeaderLine>();
     private final Map<String, VCFFormatHeaderLine> mFormatMetaData = new LinkedHashMap<String, VCFFormatHeaderLine>();
     private final Map<String, VCFFilterHeaderLine> mFilterMetaData = new LinkedHashMap<String, VCFFilterHeaderLine>();
     private final Map<String, VCFHeaderLine> mOtherMetaData = new LinkedHashMap<String, VCFHeaderLine>();
-    private final List<VCFContigHeaderLine> contigMetaData = new ArrayList<VCFContigHeaderLine>();
+    private final Map<String, VCFContigHeaderLine> contigMetaData = new LinkedHashMap<>();
 
     // the list of auxillary tags
     private final List<String> mGenotypeSampleNames = new ArrayList<String>();
@@ -126,13 +134,26 @@ public class VCFHeader implements Serializable {
     }
 
     /**
-     * create a VCF header, given a list of meta data and auxillary tags
+     * create a VCF header, given a list of meta data and auxiliary tags
      *
      * @param metaData            the meta data associated with this header
      * @param genotypeSampleNames the sample names
      */
     public VCFHeader(final Set<VCFHeaderLine> metaData, final Set<String> genotypeSampleNames) {
         this(metaData, new ArrayList<String>(genotypeSampleNames));
+    }
+
+    /**
+     * create a VCF header, given a target version, a list of meta data and auxiliary tags
+     *
+     * @param vcfHeaderVersion    the vcf header version for this header, can not be null
+     * @param metaData            the meta data associated with this header
+     * @param genotypeSampleNames the sample names
+     */
+    public VCFHeader(final VCFHeaderVersion vcfHeaderVersion, final Set<VCFHeaderLine> metaData, final Set<String> genotypeSampleNames) {
+        this(metaData, new ArrayList(genotypeSampleNames));
+        ValidationUtils.nonNull(vcfHeaderVersion);
+        setVCFHeaderVersion(vcfHeaderVersion);
     }
 
     public VCFHeader(final Set<VCFHeaderLine> metaData, final List<String> genotypeSampleNames) {
@@ -144,6 +165,52 @@ public class VCFHeader implements Serializable {
         mGenotypeSampleNames.addAll(genotypeSampleNames);
         samplesWereAlreadySorted = ParsingUtils.isSorted(genotypeSampleNames);
         buildVCFReaderMaps(genotypeSampleNames);
+    }
+
+    /**
+     * Establish the header version for this header. If the header version has already been established
+     * for this header, the new version will be subject to version transition validation.
+     * @param vcfHeaderVersion
+     * @throws TribbleException if the requested header version is not compatible with the existing version
+     */
+    public void setVCFHeaderVersion(final VCFHeaderVersion vcfHeaderVersion) {
+        validateVersionTransition(this.vcfHeaderVersion, vcfHeaderVersion);
+        this.vcfHeaderVersion = vcfHeaderVersion;
+    }
+
+    /**
+     * Throw if {@code fromVersion} is not compatible with a {@code toVersion}. Generally, any version before
+     * version 4.2 can be up-converted to version 4.2, but not to version 4.3. Once a header is established as
+     * version 4.3, it cannot be up or down converted, and it must remain at version 4.3.
+     * @param fromVersion current version. May be null, in which case {@code toVersion} can be any version
+     * @param toVersion new version. Cannot be null.
+     * @throws TribbleException if {@code fromVersion} is not compatible with {@code toVersion}
+     */
+    public static void validateVersionTransition(final VCFHeaderVersion fromVersion, final VCFHeaderVersion toVersion) {
+        ValidationUtils.nonNull(toVersion);
+
+        final String errorMessageFormatString = "VCF cannot be automatically promoted from %s to %s";
+
+        // fromVersion can be null, in which case anything goes (any transition from null is legal)
+        if (fromVersion != null) {
+            if (toVersion.isAtLeastAsRecentAs(VCFHeaderVersion.VCF4_3)) {
+                if (!fromVersion.isAtLeastAsRecentAs(VCFHeaderVersion.VCF4_3)) {
+                    // we're trying to go from pre-v4.3 to v4.3+
+                    throw new TribbleException(String.format(errorMessageFormatString, fromVersion, toVersion));
+                }
+
+            } else if (fromVersion.equals(VCFHeaderVersion.VCF4_3)) {
+                // we're trying to go from v4.3 to pre-v4.3
+                throw new TribbleException(String.format(errorMessageFormatString, fromVersion, toVersion));
+            }
+        }
+    }
+
+    /**
+     * @return the VCFHeaderVersion for this header. Can be null.
+     */
+    public VCFHeaderVersion getVCFHeaderVersion() {
+        return vcfHeaderVersion;
     }
 
     /**
@@ -188,13 +255,15 @@ public class VCFHeader implements Serializable {
      * @return all of the VCF header lines of the ##contig form in order, or an empty list if none were present
      */
     public List<VCFContigHeaderLine> getContigLines() {
-        return Collections.unmodifiableList(contigMetaData);
+        // this must preserve input order
+        return Collections.unmodifiableList(new ArrayList<>(contigMetaData.values()));
     }
 
     /**
      * Returns the contigs in this VCF file as a SAMSequenceDictionary. Returns null if contigs lines are
-     * not present in the header. Throws SAMException if one or more contig lines do not have length
-     * information.
+     * not present in the header. If contig lines are missing length tags, they will be created with
+     * length set to SAMSequenceRecord.UNKNOWN_SEQUENCE_LENGTH. Records with unknown length will match any record with
+     * the same name when evaluated by SAMSequenceRecord.isSameSequence.
      */
     public SAMSequenceDictionary getSequenceDictionary() {
         final List<VCFContigHeaderLine> contigHeaderLines = this.getContigLines();
@@ -202,7 +271,8 @@ public class VCFHeader implements Serializable {
 
         final List<SAMSequenceRecord> sequenceRecords = new ArrayList<SAMSequenceRecord>(contigHeaderLines.size());
         for (final VCFContigHeaderLine contigHeaderLine : contigHeaderLines) {
-            sequenceRecords.add(contigHeaderLine.getSAMSequenceRecord());
+            final SAMSequenceRecord samSequenceRecord = contigHeaderLine.getSAMSequenceRecord();
+            sequenceRecords.add(samSequenceRecord);
         }
 
         return new SAMSequenceDictionary(sequenceRecords);
@@ -223,10 +293,8 @@ public class VCFHeader implements Serializable {
         }
         mMetaData.removeAll(toRemove);
         for (final SAMSequenceRecord record : dictionary.getSequences()) {
-            contigMetaData.add(new VCFContigHeaderLine(record, record.getAssembly()));
+            addMetaDataLine(new VCFContigHeaderLine(record, record.getAssembly()));
         }
-
-        this.mMetaData.addAll(contigMetaData);
     }
 
     public VariantContextComparator getVCFRecordComparator() {
@@ -247,16 +315,16 @@ public class VCFHeader implements Serializable {
     }
 
     /**
-     * @return all of the VCF FILTER lines in their original file order, or an empty list if none were present
+     * @return all of the VCF ID-based header lines in their original file order, or an empty list if none were present
      */
     public List<VCFIDHeaderLine> getIDHeaderLines() {
-        final List<VCFIDHeaderLine> filters = new ArrayList<VCFIDHeaderLine>();
+        final List<VCFIDHeaderLine> lines = new ArrayList<VCFIDHeaderLine>();
         for (final VCFHeaderLine line : mMetaData) {
             if (line instanceof VCFIDHeaderLine)  {
-                filters.add((VCFIDHeaderLine)line);
+                lines.add((VCFIDHeaderLine)line);
             }
         }
-        return filters;
+        return lines;
     }
 
     /**
@@ -321,18 +389,15 @@ public class VCFHeader implements Serializable {
      * @return true if line was added to the list of contig lines, otherwise false
      */
     private boolean addContigMetaDataLineLookupEntry(final VCFContigHeaderLine line) {
-        for (VCFContigHeaderLine vcfContigHeaderLine : contigMetaData) {
-            // if we are trying to add a contig for the same ID
-            if (vcfContigHeaderLine.getID().equals(line.getID())) {
-                if ( GeneralUtils.DEBUG_MODE_ENABLED ) {
-                    System.err.println("Found duplicate VCF contig header lines for " + line.getID() + "; keeping the first only" );
-                }
-                // do not add this contig if it exists
-                return false;
+        // if we are trying to add a contig for the same ID
+        if (contigMetaData.containsKey(line.getID())) {
+            if ( GeneralUtils.DEBUG_MODE_ENABLED ) {
+                System.err.println("Found duplicate VCF contig header lines for " + line.getID() + "; keeping the first only" );
             }
+            // do not add this contig if it exists
+            return false;
         }
-
-        contigMetaData.add(line);
+        contigMetaData.put(line.getID(), line);
         return true;
     }
 
@@ -401,9 +466,14 @@ public class VCFHeader implements Serializable {
         return makeGetMetaDataSet(new TreeSet<VCFHeaderLine>(mMetaData));
     }
 
-    private static Set<VCFHeaderLine> makeGetMetaDataSet(final Set<VCFHeaderLine> headerLinesInSomeOrder) {
+    private Set<VCFHeaderLine> makeGetMetaDataSet(final Set<VCFHeaderLine> headerLinesInSomeOrder) {
         final Set<VCFHeaderLine> lines = new LinkedHashSet<VCFHeaderLine>();
-        lines.add(new VCFHeaderLine(VCFHeaderVersion.VCF4_2.getFormatString(), VCFHeaderVersion.VCF4_2.getVersionString()));
+        if (vcfHeaderVersion != null && vcfHeaderVersion.isAtLeastAsRecentAs(VCFHeaderVersion.VCF4_3)) {
+            // always propagate version 4.3+ to prevent these header lines from magically being back-versioned to < 4.3
+            lines.add(new VCFHeaderLine(VCFHeaderVersion.VCF4_3.getFormatString(), VCFHeaderVersion.VCF4_3.getVersionString()));
+        } else {
+            lines.add(new VCFHeaderLine(VCFHeaderVersion.VCF4_2.getFormatString(), VCFHeaderVersion.VCF4_2.getVersionString()));
+        }
         lines.addAll(headerLinesInSomeOrder);
         return Collections.unmodifiableSet(lines);
     }
@@ -555,6 +625,10 @@ public class VCFHeader implements Serializable {
         this.writeCommandLine = writeCommandLine;
     }
 
+    /**
+     * Get the genotype sample names, sorted in ascending order. Note: this will not necessarily match the order in the VCF.
+     * @return The sorted genotype samples. May be empty if hasGenotypingData() returns false.
+     */
     public ArrayList<String> getSampleNamesInOrder() {
         return sampleNamesInOrder;
     }

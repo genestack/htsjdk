@@ -1,5 +1,6 @@
 package htsjdk.samtools.util;
 
+import htsjdk.HtsjdkTest;
 import org.testng.Assert;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
@@ -12,7 +13,7 @@ import java.util.HashSet;
 import static java.lang.Math.abs;
 import static java.lang.StrictMath.pow;
 
-public class HistogramTest {
+public class HistogramTest extends HtsjdkTest {
 
     @Test(dataProvider = "histogramData")
     public void testHistogramFunctions(final int[] values, final double mean, final double stdev, final Integer trimByWidth) {
@@ -209,6 +210,29 @@ public class HistogramTest {
         Assert.assertEquals(histo.getPercentile(2.0/9), 4.0);
         Assert.assertEquals(histo.getPercentile(5.0/9), 5.0);
         Assert.assertEquals(histo.getPercentile(0.99999), 6.0);
+    }
+
+    @DataProvider
+    Object[][] percentileFailData(){
+        Histogram<Integer> histo1 = new Histogram<>();
+        Histogram<Integer> histo2 = new Histogram<>();
+        histo2.increment(0,0);
+
+        Histogram<Integer> histo3 = new Histogram<>();
+        final int[] is = {2, 3, 4, -1};
+        int j=0;
+        for (final int i : is) histo3.increment(j++, i);
+
+        return new Object[][]{
+                {histo1},
+                {histo2},
+                {histo3},
+        };
+    }
+
+    @Test(dataProvider = "percentileFailData",expectedExceptions = IllegalStateException.class)
+    public void testPercentileFail1(final Histogram<Integer> histo) {
+        histo.getPercentile(0.01);
     }
 
     @Test

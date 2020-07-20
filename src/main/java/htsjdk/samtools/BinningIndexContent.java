@@ -159,18 +159,19 @@ public class BinningIndexContent {
             this.maxBinNumber = mBinArray.length - 1;
         }
 
-        Bin getBin(final int binNumber) {
+        public Bin getBin(final int binNumber) {
             if (binNumber > maxBinNumber) return null;
             return mBinArray[binNumber];
         }
 
-        int getNumberOfNonNullBins() {
+        public int getNumberOfNonNullBins() {
             return numberOfNonNullBins;
         }
 
         /**
          * @return An iterator over all non-empty bins.
          */
+        @Override
         public Iterator<Bin> iterator() {
             return new BinIterator();
         }
@@ -190,6 +191,7 @@ public class BinningIndexContent {
              *
              * @return True if more bins are remaining.
              */
+            @Override
             public boolean hasNext() {
                 while (nextBin <= maxBinNumber) {
                     if (getBin(nextBin) != null) return true;
@@ -203,6 +205,7 @@ public class BinningIndexContent {
              *
              * @return the next available bin in the BinList.
              */
+            @Override
             public Bin next() {
                 if (!hasNext())
                     throw new NoSuchElementException("This BinIterator is currently empty");
@@ -211,6 +214,7 @@ public class BinningIndexContent {
                 return result;
             }
 
+            @Override
             public void remove() {
                 throw new UnsupportedOperationException("Unable to remove from a bin iterator");
             }

@@ -23,6 +23,7 @@
  */
 package htsjdk.samtools.seekablestream;
 
+import htsjdk.HtsjdkTest;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -35,7 +36,8 @@ import java.net.URL;
  * @author Jim Robinson
  * @since 10/3/11
  */
-public class SeekableFTPStreamTest {
+@Test(groups = "ftp")
+public class SeekableFTPStreamTest extends HtsjdkTest {
 
 
     static String urlString = "ftp://ftp.broadinstitute.org/pub/igv/TEST/test.txt";
@@ -43,13 +45,13 @@ public class SeekableFTPStreamTest {
     static byte[] expectedBytes = "abcdefghijklmnopqrstuvwxyz\n".getBytes();
     SeekableFTPStream stream;
 
-    @BeforeMethod
+    @BeforeMethod()
     public void setUp() throws IOException {
         stream = new SeekableFTPStream(new URL(urlString));
 
     }
 
-    @AfterMethod
+    @AfterMethod()
     public void tearDown() throws IOException {
         stream.close();
     }

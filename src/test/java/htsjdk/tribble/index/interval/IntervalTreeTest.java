@@ -18,6 +18,7 @@
 
 package htsjdk.tribble.index.interval;
 
+import htsjdk.HtsjdkTest;
 import htsjdk.tribble.AbstractFeatureReader;
 import htsjdk.tribble.CloseableTribbleIterator;
 import htsjdk.tribble.FeatureReader;
@@ -27,7 +28,7 @@ import htsjdk.tribble.bed.BEDFeature;
 import htsjdk.tribble.index.Index;
 import htsjdk.tribble.index.IndexFactory;
 import org.testng.Assert;
-import org.testng.annotations.BeforeClass;
+import org.testng.annotations.BeforeTest;
 import org.testng.annotations.Test;
 
 import java.io.BufferedReader;
@@ -42,12 +43,12 @@ import java.util.Set;
  * User: jrobinso
  * Date: Mar 24, 2010
  */
-public class IntervalTreeTest {
+public class IntervalTreeTest extends HtsjdkTest {
 
-    static IntervalTree tree;
+    private IntervalTree tree;
 
-    @BeforeClass
-    public static void setupTree() {
+    @BeforeTest
+    public void setupTree() {
         tree = new IntervalTree();
         tree.insert(new Interval(0, 3, null));
         tree.insert(new Interval(5, 8, null));
@@ -119,7 +120,7 @@ public class IntervalTreeTest {
     public void testOverlappingFeatures() throws Exception {
         //chr2:179,222,066-179,262,059<- CONTAINS TTN
 
-        Set<String> names = new HashSet<String>(Arrays.asList("Hs.134602", "Hs.620337", "Hs.609465", "Hs.623987",
+        Set<String> names = new HashSet<>(Arrays.asList("Hs.134602", "Hs.620337", "Hs.609465", "Hs.623987",
                 "Hs.594545", "LONG_FEATURE"));
 
         String bedFile = TestUtils.DATA_DIR + "/bed/Unigene.sample.bed";
@@ -144,10 +145,6 @@ public class IntervalTreeTest {
         }
 
         Assert.assertEquals(countInterval, expectedCount);
-
-
     }
-
-
 }
 

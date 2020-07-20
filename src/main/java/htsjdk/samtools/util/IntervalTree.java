@@ -23,9 +23,13 @@
  */
 package htsjdk.samtools.util;
 
+import htsjdk.utils.ValidationUtils;
+
 import java.util.ConcurrentModificationException;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import java.util.Objects;
+import java.util.function.BiFunction;
 
 /**
  * A Red-Black tree with intervals for keys.
@@ -64,7 +68,6 @@ public class IntervalTree<V> implements Iterable<IntervalTree.Node<V>>
      * @param value The associated value.
      * @return The old value associated with that interval, or the sentinel.
      */
-    @SuppressWarnings("null")
     public V put( final int start, final int end, final V value )
     {
         if ( start > end )
@@ -112,6 +115,36 @@ public class IntervalTree<V> implements Iterable<IntervalTree.Node<V>>
         }
 
         return result;
+    }
+
+    /**
+     * If the specified start and end positions are not already associated with a value or are
+     * associated with the sentinel ( see {@link #getSentinel()}, associates it with the given (non-sentinel) value.
+     * Otherwise, replaces the associated value with the results of the given
+     * remapping function, or removes if the result is equal to the sentinel value. This
+     * method may be of use when combining multiple values that have the same start and end position.
+     *
+     * @param start interval start position
+     * @param end interval end position
+     * @param value value to merge into the tree, must not be equal to the sentinel value
+     * @param remappingFunction a function that merges the new value with the existing value for the same start and end position,
+     *                          if the function returns the sentinel value then the mapping will be unset
+     * @return the updated value that is stored in the tree after the completion of this merge operation, this will
+     * be the sentinel value if nothing ended up being stored
+     */
+    public V merge(int start, int end, V value, BiFunction<? super V,  ? super V, ? extends V> remappingFunction) {
+        ValidationUtils.validateArg(!Objects.equals(value, mSentinel), "Values equal to the sentinel value may not be merged");
+        final V alreadyPresent = put(start, end, value);
+        if (!Objects.equals(alreadyPresent, mSentinel)) {
+            final V newComputedValue = remappingFunction.apply(value, alreadyPresent);
+            if (Objects.equals(newComputedValue, mSentinel)) {
+                remove(start, end);
+            } else {
+                put(start, end, newComputedValue);
+            }
+            return newComputedValue;
+        }
+        return value;
     }
 
     /**
@@ -340,6 +373,7 @@ public class IntervalTree<V> implements Iterable<IntervalTree.Node<V>>
      * Return an iterator over the entire tree.
      * @return An iterator.
      */
+    @Override
     public Iterator<Node<V>> iterator()
     {
         return new FwdIterator(min());
@@ -482,7 +516,7 @@ public class IntervalTree<V> implements Iterable<IntervalTree.Node<V>>
 
         public int getLength()
         {
-            return mEnd - mStart;
+            return mEnd - mStart + 1 ;
         }
 
         public int getRelationship( final Node<V1> interval )
@@ -492,14 +526,14 @@ public class IntervalTree<V> implements Iterable<IntervalTree.Node<V>>
                 result = HAS_LESSER_PART;
             if ( mEnd > interval.getEnd() )
                 result |= HAS_GREATER_PART;
-            if ( mStart < interval.getEnd() && interval.getStart() < mEnd )
+            if ( mStart <= interval.getEnd() && interval.getStart() <= mEnd )
                 result |= HAS_OVERLAPPING_PART;
             return result;
         }
 
         public boolean isAdjacent( final Node<V1> interval )
         {
-            return mStart == interval.getEnd() || mEnd == interval.getStart();
+            return mStart == interval.getEnd() + 1 || mEnd + 1 == interval.getStart();
         }
 
         public V1 getValue()
@@ -1069,11 +1103,13 @@ public class IntervalTree<V> implements Iterable<IntervalTree.Node<V>>
             mNext = node;
         }
 
+        @Override
         public boolean hasNext()
         {
             return mNext != null;
         }
 
+        @Override
         public Node<V> next()
         {
             if ( mNext == null )
@@ -1092,6 +1128,7 @@ public class IntervalTree<V> implements Iterable<IntervalTree.Node<V>>
             return mLast;
         }
 
+        @Override
         public void remove()
         {
             if ( mLast == null )
@@ -1115,11 +1152,13 @@ public class IntervalTree<V> implements Iterable<IntervalTree.Node<V>>
             mNext = node;
         }
 
+        @Override
         public boolean hasNext()
         {
             return mNext != null;
         }
 
+        @Override
         public Node<V> next()
         {
             if ( mNext == null )
@@ -1135,6 +1174,7 @@ public class IntervalTree<V> implements Iterable<IntervalTree.Node<V>>
             return mLast;
         }
 
+        @Override
         public void remove()
         {
             if ( mLast == null )
@@ -1160,11 +1200,13 @@ public class IntervalTree<V> implements Iterable<IntervalTree.Node<V>>
             mEnd = end;
         }
 
+        @Override
         public boolean hasNext()
         {
             return mNext != null;
         }
 
+        @Override
         public Node<V> next()
         {
             if ( mNext == null )
@@ -1182,6 +1224,7 @@ public class IntervalTree<V> implements Iterable<IntervalTree.Node<V>>
             return mLast;
         }
 
+        @Override
         public void remove()
         {
             if ( mLast == null )
@@ -1207,16 +1250,19 @@ public class IntervalTree<V> implements Iterable<IntervalTree.Node<V>>
             mItr = itr;
         }
 
+        @Override
         public boolean hasNext()
         {
             return mItr.hasNext();
         }
 
+        @Override
         public V1 next()
         {
             return mItr.next().getValue();
         }
 
+        @Override
         public void remove()
         {
             mItr.remove();

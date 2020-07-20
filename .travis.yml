@@ -8,13 +8,46 @@ cache:
     - $HOME/.gradle/caches/
     - $HOME/.gradle/wrapper/
     - $HOME/.m2
+env:
+  global:
+    - HTSJDK_SAMTOOLS_BIN=/usr/bin/samtools
 jdk:
   - oraclejdk8
-script: ./gradlew jacocoTestReport testSRA;
+  - openjdk8
+  - openjdk11
+matrix:
+  fast_finish: true
+  allow_failures: 
+     - env: TEST_TYPE=EXTERNAL_APIS
+     - env: TEST_TYPE=FTP
+  include:
+     - jdk: oraclejdk8
+       env: TEST_TYPE=EXTERNAL_APIS
+     - jdk: oraclejdk8
+       env: TEST_TYPE=FTP
+     - jdk: openjdk8
+       env: SPOT_BUGS=true
+
+before_install:
+  - scripts/install-samtools.sh
+
+script:
+  - if [[ $SPOT_BUGS == "true" ]]; then
+      ./gradlew spotBugsMain spotBugsTest;
+    elif [[ $TEST_TYPE == "FTP" ]]; then
+        ./gradlew testFTP jacocoTestReport;
+    elif [[ $TEST_TYPE == "EXTERNAL_APIS" ]]; then
+        ./gradlew testExternalApis jacocoTestReport;
+    else
+        ./gradlew test jacocoTestReport;
+    fi
+
 after_success:
+  - bash <(curl -s https://codecov.io/bash)
   - echo "TRAVIS_BRANCH='$TRAVIS_BRANCH'";
     echo "JAVA_HOME='$JAVA_HOME'";
-    ./gradlew coveralls;
     if [ "$TRAVIS_BRANCH" == "master" ]; then
-       ./gradlew uploadArchives;
-    fi
+        if [[ $JAVA_HOME = *java-8-openjdk* ]]; then
+            ./gradlew publish;
+        fi;
+    fi;

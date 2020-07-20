@@ -62,6 +62,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Validates SAM files as follows:
@@ -88,16 +89,22 @@ public class SamFileValidator {
     private Histogram<Type> errorsByType;
     private PairEndInfoMap pairEndInfoByName;
     private ReferenceSequenceFileWalker refFileWalker;
+    private SAMSequenceDictionary samSequenceDictionary;
     private boolean verbose;
     private int maxVerboseOutput;
     private SAMSortOrderChecker orderChecker;
     private Set<Type> errorsToIgnore;
     private boolean ignoreWarnings;
+    private boolean skipMateValidation;
     private boolean bisulfiteSequenced;
     private IndexValidationStringency indexValidationStringency;
     private boolean sequenceDictionaryEmptyAndNoWarningEmitted;
+    private int numWarnings;
+    private int numErrors;
 
     private final int maxTempFiles;
+    private int qualityNotStoredErrorCount = 0;
+    public static final int MAX_QUALITY_NOT_STORED_ERRORS = 100;
 
     public SamFileValidator(final PrintWriter out, final int maxTempFiles) {
         this.out = out;
@@ -109,8 +116,11 @@ public class SamFileValidator {
         this.errorsToIgnore = EnumSet.noneOf(Type.class);
         this.verbose = false;
         this.ignoreWarnings = false;
+        this.skipMateValidation = false;
         this.bisulfiteSequenced = false;
         this.sequenceDictionaryEmptyAndNoWarningEmitted = false;
+        this.numWarnings = 0;
+        this.numErrors = 0;
     }
 
     Histogram<Type> getErrorsByType() {
@@ -128,6 +138,23 @@ public class SamFileValidator {
 
     public void setIgnoreWarnings(final boolean ignoreWarnings) {
         this.ignoreWarnings = ignoreWarnings;
+    }
+
+    /**
+     * Sets whether or not we should run mate validation beyond the mate cigar check, which
+     * is useful in extreme edge cases that would require a lot of memory to do the validation.
+     *
+     * @param skipMateValidation should this tool skip mate validation
+     */
+    public void setSkipMateValidation(final boolean skipMateValidation) {
+        this.skipMateValidation = skipMateValidation;
+    }
+
+    /**
+     * @return true if the validator will skip mate validation, otherwise false
+     */
+    public boolean getSkipMateValidation() {
+        return skipMateValidation;
     }
 
     /**
@@ -150,7 +177,7 @@ public class SamFileValidator {
             for (final Histogram.Bin<Type> bin : errorsByType.values()) {
                 errorsAndWarningsByType.increment(bin.getId().getHistogramString(), bin.getValue());
             }
-            final MetricsFile<ValidationMetrics, String> metricsFile = new MetricsFile<ValidationMetrics, String>();
+            final MetricsFile<ValidationMetrics, String> metricsFile = new MetricsFile<>();
             errorsByType.setBinLabel("Error Type");
             errorsByType.setValueLabel("Count");
             metricsFile.setHistogram(errorsAndWarningsByType);
@@ -176,16 +203,14 @@ public class SamFileValidator {
         } catch (MaxOutputExceededException e) {
             out.println("Maximum output of [" + maxVerboseOutput + "] errors reached.");
         }
-        boolean result = errorsByType.isEmpty();
+        final boolean result = errorsByType.isEmpty();
         cleanup();
         return result;
     }
 
     public void validateBamFileTermination(final File inputFile) {
-        BufferedInputStream inputStream = null;
         try {
-            inputStream = IOUtil.toBufferedStream(new FileInputStream(inputFile));
-            if (!BlockCompressedInputStream.isValidFile(inputStream)) {
+            if (!IOUtil.isBlockCompressed(inputFile.toPath())) {
                 return;
             }
             final BlockCompressedInputStream.FileTermination terminationState =
@@ -201,10 +226,6 @@ public class SamFileValidator {
             }
         } catch (IOException e) {
             throw new SAMException("IOException", e);
-        } finally {
-            if (inputStream != null) {
-                CloserUtil.close(inputStream);
-            }
         }
     }
 
@@ -218,8 +239,7 @@ public class SamFileValidator {
                 try {
                     if (indexValidationStringency == IndexValidationStringency.LESS_EXHAUSTIVE) {
                         BamIndexValidator.lessExhaustivelyTestIndex(samReader);
-                    }
-                    else {
+                    } else {
                         BamIndexValidator.exhaustivelyTestIndex(samReader);
                     }
                 } catch (Exception e) {
@@ -235,7 +255,6 @@ public class SamFileValidator {
         }
     }
 
-
     /**
      * Report on reads marked as paired, for which the mate was not found.
      */
@@ -245,13 +264,13 @@ public class SamFileValidator {
             // For the coordinate-sorted map, need to detect mate pairs in which the mateReferenceIndex on one end
             // does not match the readReference index on the other end, so the pairs weren't united and validated.
             inMemoryPairMap = new InMemoryPairEndInfoMap();
-            CloseableIterator<Map.Entry<String, PairEndInfo>> it = ((CoordinateSortedPairEndInfoMap) pairEndInfoByName).iterator();
+            final CloseableIterator<Map.Entry<String, PairEndInfo>> it = pairEndInfoByName.iterator();
             while (it.hasNext()) {
-                Map.Entry<String, PairEndInfo> entry = it.next();
-                PairEndInfo pei = inMemoryPairMap.remove(entry.getValue().readReferenceIndex, entry.getKey());
+                final Map.Entry<String, PairEndInfo> entry = it.next();
+                final PairEndInfo pei = inMemoryPairMap.remove(entry.getValue().readReferenceIndex, entry.getKey());
                 if (pei != null) {
                     // Found a mismatch btw read.mateReferenceIndex and mate.readReferenceIndex
-                    List<SAMValidationError> errors = pei.validateMates(entry.getValue(), entry.getKey());
+                    final List<SAMValidationError> errors = pei.validateMates(entry.getValue(), entry.getKey());
                     for (final SAMValidationError error : errors) {
                         addError(error);
                     }
@@ -301,8 +320,7 @@ public class SamFileValidator {
                 if (cigarIsValid) {
                     try {
                         validateNmTag(record, recordNumber);
-                    }
-                    catch (SAMException e) {
+                    } catch (SAMException e) {
                         if (hasValidSortOrder) {
                             // If a CRAM file has an invalid sort order, the ReferenceFileWalker will throw a
                             // SAMException due to an out of order request when retrieving reference bases during NM
@@ -319,6 +337,14 @@ public class SamFileValidator {
                     sequenceDictionaryEmptyAndNoWarningEmitted = false;
 
                 }
+
+                if ((qualityNotStoredErrorCount++ < MAX_QUALITY_NOT_STORED_ERRORS) && record.getBaseQualityString().equals("*")) {
+                    addError(new SAMValidationError(Type.QUALITY_NOT_STORED,
+                            "QUAL field is set to * (unspecified quality scores), this is allowed by the SAM" +
+                                    " specification but many tools expect reads to include qualities ",
+                            record.getReadName(), recordNumber));
+                }
+
                 progress.record(record);
             }
 
@@ -358,15 +384,33 @@ public class SamFileValidator {
     }
 
     /**
-     * Report error if a tag value is a Long.
+     * Report error if a tag value is a Long, or if there's a duplicate dag,
+     * or if there's a CG tag is obvered (CG tags are converted to cigars in
+     * the bam code, and should not appear in other formats)
      */
     private void validateTags(final SAMRecord record, final long recordNumber) {
-        for (final SAMRecord.SAMTagAndValue tagAndValue : record.getAttributes()) {
+        final List<SAMRecord.SAMTagAndValue> attributes = record.getAttributes();
+
+        final Set<String> tags = new HashSet<>(attributes.size());
+
+        for (final SAMRecord.SAMTagAndValue tagAndValue : attributes) {
             if (tagAndValue.value instanceof Long) {
                 addError(new SAMValidationError(Type.TAG_VALUE_TOO_LARGE,
                         "Numeric value too large for tag " + tagAndValue.tag,
                         record.getReadName(), recordNumber));
             }
+
+            if (!tags.add(tagAndValue.tag)) {
+                addError(new SAMValidationError(Type.DUPLICATE_SAM_TAG,
+                        "Duplicate SAM tag (" + tagAndValue.tag + ") found.", record.getReadName(), recordNumber));
+            }
+        }
+
+        if (tags.contains(SAMTag.CG.name())){
+            addError(new SAMValidationError(Type.CG_TAG_FOUND_IN_ATTRIBUTES,
+                    "The CG Tag should only be used in BAM format to hold a large cigar. " +
+                            "It was found containing the value: " +
+                            record.getAttribute(SAMTag.CG.getBinaryTag()), record.getReadName(), recordNumber));
         }
     }
 
@@ -402,10 +446,7 @@ public class SamFileValidator {
     }
 
     private boolean validateCigar(final SAMRecord record, final long recordNumber) {
-        if (record.getReadUnmappedFlag()) {
-            return true;
-        }
-        return validateCigar(record, recordNumber, true);
+        return record.getReadUnmappedFlag() || validateCigar(record, recordNumber, true);
     }
 
     private boolean validateMateCigar(final SAMRecord record, final long recordNumber) {
@@ -427,7 +468,6 @@ public class SamFileValidator {
         }
         return valid;
     }
-
 
     private boolean validateSortOrder(final SAMRecord record, final long recordNumber) {
         final SAMRecord prev = orderChecker.getPreviousRecord();
@@ -455,6 +495,7 @@ public class SamFileValidator {
         }
         if (reference != null) {
             this.refFileWalker = new ReferenceSequenceFileWalker(reference);
+            this.samSequenceDictionary = reference.getSequenceDictionary();
         }
     }
 
@@ -496,6 +537,10 @@ public class SamFileValidator {
         }
         validateMateCigar(record, recordNumber);
 
+        if (skipMateValidation) {
+            return;
+        }
+
         final PairEndInfo pairEndInfo = pairEndInfoByName.remove(record.getReferenceIndex(), record.getReadName());
         if (pairEndInfo == null) {
             pairEndInfoByName.put(record.getMateReferenceIndex(), record.getReadName(), new PairEndInfo(record, recordNumber));
@@ -522,6 +567,20 @@ public class SamFileValidator {
         }
         if (fileHeader.getSequenceDictionary().isEmpty()) {
             sequenceDictionaryEmptyAndNoWarningEmitted = true;
+        } else {
+            if (samSequenceDictionary != null) {
+                if (!fileHeader.getSequenceDictionary().isSameDictionary(samSequenceDictionary)) {
+                    addError(new SAMValidationError(Type.MISMATCH_FILE_SEQ_DICT, "Mismatch between file and sequence dictionary", null));
+                }
+            }
+            
+            final List<SAMSequenceRecord> longSeqs = fileHeader.getSequenceDictionary().getSequences().stream()
+                    .filter(s -> s.getSequenceLength() > GenomicIndexUtil.BIN_GENOMIC_SPAN).collect(Collectors.toList());
+
+            if (!longSeqs.isEmpty()) {
+                final String msg = "Reference sequences are too long for BAI indexing: " + StringUtil.join(", ", longSeqs);
+                addError(new SAMValidationError(Type.REF_SEQ_TOO_LONG_FOR_BAI, msg, null));
+            }
         }
         if (fileHeader.getReadGroups().isEmpty()) {
             addError(new SAMValidationError(Type.MISSING_READ_GROUP, "Read groups is empty", null));
@@ -537,7 +596,7 @@ public class SamFileValidator {
         }
 
         final List<SAMReadGroupRecord> rgs = fileHeader.getReadGroups();
-        final Set<String> readGroupIDs = new HashSet<String>();
+        final Set<String> readGroupIDs = new HashSet<>();
 
         for (final SAMReadGroupRecord record : rgs) {
             final String readGroupID = record.getReadGroupId();
@@ -553,13 +612,12 @@ public class SamFileValidator {
                 addError(new SAMValidationError(Type.MISSING_PLATFORM_VALUE,
                         "A platform (PL) attribute was not found for read group ",
                         readGroupID));
-            }
-            else { 
+            } else {
                 // NB: cannot be null, so not catching a NPE
                 try {
                     SAMReadGroupRecord.PlatformValue.valueOf(platformValue.toUpperCase());
                 } catch (IllegalArgumentException e) {
-                    addError(new SAMValidationError(Type.INVALID_PLATFORM_VALUE, 
+                    addError(new SAMValidationError(Type.INVALID_PLATFORM_VALUE,
                             "The platform (PL) attribute (" + platformValue + ") + was not one of the valid values for read group ",
                             readGroupID));
                 }
@@ -567,11 +625,41 @@ public class SamFileValidator {
         }
     }
 
+    /**
+     * Number of warnings during SAM file validation
+     *
+     * @return number of warnings
+     */
+    public int getNumWarnings() {
+        return this.numWarnings;
+    }
+
+    /**
+     * Number of errors during SAM file validation
+     *
+     * @return number of errors
+     */
+    public int getNumErrors() {
+        return this.numErrors;
+    }
+
     private void addError(final SAMValidationError error) {
         // Just ignore an error if it's of a type we're not interested in
         if (this.errorsToIgnore.contains(error.getType())) return;
 
-        if (this.ignoreWarnings && error.getType().severity == SAMValidationError.Severity.WARNING) return;
+        switch (error.getType().severity) {
+            case WARNING:
+                if (this.ignoreWarnings) {
+                    return;
+                }
+                this.numWarnings++;
+                break;
+            case ERROR:
+                this.numErrors++;
+                break;
+            default:
+                throw new SAMException("Unknown SAM validation error severity: " + error.getType().severity);
+        }
 
         this.errorsByType.increment(error.getType());
         if (verbose) {
@@ -659,11 +747,10 @@ public class SamFileValidator {
             this.firstOfPairFlag = record.getFirstOfPairFlag();
         }
 
-        private PairEndInfo(int readAlignmentStart, int readReferenceIndex, boolean readNegStrandFlag, boolean readUnmappedFlag,
-                            String readCigarString,
-                            int mateAlignmentStart, int mateReferenceIndex, boolean mateNegStrandFlag, boolean mateUnmappedFlag,
-                            String mateCigarString,
-                            boolean firstOfPairFlag, long recordNumber) {
+        private PairEndInfo(final int readAlignmentStart, final int readReferenceIndex, final boolean readNegStrandFlag, final boolean readUnmappedFlag,
+                            final String readCigarString,
+                            final int mateAlignmentStart, final int mateReferenceIndex, final boolean mateNegStrandFlag, final boolean mateUnmappedFlag,
+                            final String mateCigarString, final boolean firstOfPairFlag, final long recordNumber) {
             this.readAlignmentStart = readAlignmentStart;
             this.readReferenceIndex = readReferenceIndex;
             this.readNegStrandFlag = readNegStrandFlag;
@@ -679,7 +766,7 @@ public class SamFileValidator {
         }
 
         public List<SAMValidationError> validateMates(final PairEndInfo mate, final String readName) {
-            final List<SAMValidationError> errors = new ArrayList<SAMValidationError>();
+            final List<SAMValidationError> errors = new ArrayList<>();
             validateMateFields(this, mate, readName, errors);
             validateMateFields(mate, this, readName, errors);
             // Validations that should not be repeated on both ends
@@ -750,21 +837,25 @@ public class SamFileValidator {
 
         PairEndInfo remove(int mateReferenceIndex, String key);
 
+        @Override
         CloseableIterator<Map.Entry<String, PairEndInfo>> iterator();
     }
 
     private class CoordinateSortedPairEndInfoMap implements PairEndInfoMap {
         private final CoordinateSortedPairInfoMap<String, PairEndInfo> onDiskMap =
-                new CoordinateSortedPairInfoMap<String, PairEndInfo>(maxTempFiles, new Codec());
+                new CoordinateSortedPairInfoMap<>(maxTempFiles, new Codec());
 
+        @Override
         public void put(int mateReferenceIndex, String key, PairEndInfo value) {
             onDiskMap.put(mateReferenceIndex, key, value);
         }
 
+        @Override
         public PairEndInfo remove(int mateReferenceIndex, String key) {
             return onDiskMap.remove(mateReferenceIndex, key);
         }
 
+        @Override
         public CloseableIterator<Map.Entry<String, PairEndInfo>> iterator() {
             return onDiskMap.iterator();
         }
@@ -773,14 +864,17 @@ public class SamFileValidator {
             private DataInputStream in;
             private DataOutputStream out;
 
+            @Override
             public void setOutputStream(final OutputStream os) {
                 this.out = new DataOutputStream(os);
             }
 
+            @Override
             public void setInputStream(final InputStream is) {
                 this.in = new DataInputStream(is);
             }
 
+            @Override
             public void encode(final String key, final PairEndInfo record) {
                 try {
                     out.writeUTF(key);
@@ -802,6 +896,7 @@ public class SamFileValidator {
                 }
             }
 
+            @Override
             public Map.Entry<String, PairEndInfo> decode() {
                 try {
                     final String key = in.readUTF();
@@ -836,33 +931,40 @@ public class SamFileValidator {
     }
 
     private static class InMemoryPairEndInfoMap implements PairEndInfoMap {
-        private final Map<String, PairEndInfo> map = new HashMap<String, PairEndInfo>();
+        private final Map<String, PairEndInfo> map = new HashMap<>();
 
+        @Override
         public void put(int mateReferenceIndex, String key, PairEndInfo value) {
             if (mateReferenceIndex != value.mateReferenceIndex)
                 throw new IllegalArgumentException("mateReferenceIndex does not agree with PairEndInfo");
             map.put(key, value);
         }
 
+        @Override
         public PairEndInfo remove(int mateReferenceIndex, String key) {
             return map.remove(key);
         }
 
+        @Override
         public CloseableIterator<Map.Entry<String, PairEndInfo>> iterator() {
             final Iterator<Map.Entry<String, PairEndInfo>> it = map.entrySet().iterator();
             return new CloseableIterator<Map.Entry<String, PairEndInfo>>() {
+                @Override
                 public void close() {
                     // do nothing
                 }
 
+                @Override
                 public boolean hasNext() {
                     return it.hasNext();
                 }
 
+                @Override
                 public Map.Entry<String, PairEndInfo> next() {
                     return it.next();
                 }
 
+                @Override
                 public void remove() {
                     it.remove();
                 }

@@ -38,6 +38,7 @@ public class Chunk implements Cloneable, Serializable,Comparable<Chunk> {
         mChunkEnd = end;
     }
 
+    @Override
     public Chunk clone() {
         return new Chunk(mChunkStart,mChunkEnd);
     }
@@ -58,6 +59,7 @@ public class Chunk implements Cloneable, Serializable,Comparable<Chunk> {
         mChunkEnd = value;
     }
 
+    @Override
     public int compareTo(final Chunk chunk) {
         int result = Long.signum(mChunkStart - chunk.mChunkStart);
         if (result == 0) {
@@ -122,6 +124,19 @@ public class Chunk implements Cloneable, Serializable,Comparable<Chunk> {
                 BlockCompressedFilePointerUtil.getBlockOffset(this.getChunkEnd()) == BlockCompressedFilePointerUtil.getBlockOffset(other.getChunkStart())) ||
                (BlockCompressedFilePointerUtil.getBlockAddress(this.getChunkStart()) == BlockCompressedFilePointerUtil.getBlockAddress(other.getChunkEnd()) &&
                 BlockCompressedFilePointerUtil.getBlockOffset(this.getChunkStart()) == BlockCompressedFilePointerUtil.getBlockOffset(other.getChunkEnd()));
+    }
+
+    /**
+     * Return a new chunk shifted by a given (non-virtual) offset.
+     *
+     * @param offset the offset in bytes
+     * @return a new chunk shifted by the given offset
+     * @see BlockCompressedFilePointerUtil#shift(long, long)
+     */
+    Chunk shift(final long offset) {
+        final long start = BlockCompressedFilePointerUtil.shift(getChunkStart(), offset);
+        final long end = BlockCompressedFilePointerUtil.shift(getChunkEnd(), offset);
+        return new Chunk(start, end);
     }
 
     @Override

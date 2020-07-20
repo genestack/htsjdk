@@ -28,6 +28,8 @@ import htsjdk.samtools.util.zip.DeflaterFactory;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.zip.CRC32;
 import java.util.zip.Deflater;
 
@@ -110,8 +112,9 @@ public class BlockCompressedOutputStream
     // so just use JDK standard.
     private final Deflater noCompressionDeflater = new Deflater(Deflater.NO_COMPRESSION, true);
     private final CRC32 crc32 = new CRC32();
-    private File file = null;
+    private Path file = null;
     private long mBlockAddress = 0;
+    private GZIIndex.GZIIndexer indexer;
 
 
     // Really a local variable, but allocate once to reduce GC burden.
@@ -160,8 +163,17 @@ public class BlockCompressedOutputStream
      * @param deflaterFactory custom factory to create deflaters (overrides the default)
      */
     public BlockCompressedOutputStream(final File file, final int compressionLevel, final DeflaterFactory deflaterFactory) {
-        this.file = file;
-        codec = new BinaryCodec(file, true);
+        this(IOUtil.toPath(file), compressionLevel, deflaterFactory);
+    }
+
+    /**
+     * Prepare to compress at the given compression level
+     * @param compressionLevel 1 <= compressionLevel <= 9
+     * @param deflaterFactory custom factory to create deflaters (overrides the default)
+     */
+    public BlockCompressedOutputStream(final Path path, final int compressionLevel, final DeflaterFactory deflaterFactory) {
+        this.file = path;
+        codec = new BinaryCodec(path, true);
         deflater = deflaterFactory.makeDeflater(compressionLevel, true);
         log.debug("Using deflater: " + deflater.getClass().getSimpleName());
     }
@@ -178,10 +190,29 @@ public class BlockCompressedOutputStream
     }
 
     /**
+     * Uses default compression level, which is 5 unless changed by setCompressionLevel
+     * Note: this constructor uses the default {@link DeflaterFactory}, see {@link #getDefaultDeflaterFactory()}.
+     * Use {@link #BlockCompressedOutputStream(OutputStream, File, int, DeflaterFactory)} to specify a custom factory.
+     *
+     * @param file may be null
+     */
+    public BlockCompressedOutputStream(final OutputStream os, final Path file) {
+        this(os, file, defaultCompressionLevel);
+    }
+
+    /**
      * Note: this constructor uses the default {@link DeflaterFactory}, see {@link #getDefaultDeflaterFactory()}.
      * Use {@link #BlockCompressedOutputStream(OutputStream, File, int, DeflaterFactory)} to specify a custom factory.
      */
     public BlockCompressedOutputStream(final OutputStream os, final File file, final int compressionLevel) {
+        this(os, file, compressionLevel, defaultDeflaterFactory);
+    }
+
+    /**
+     * Note: this constructor uses the default {@link DeflaterFactory}, see {@link #getDefaultDeflaterFactory()}.
+     * Use {@link #BlockCompressedOutputStream(OutputStream, File, int, DeflaterFactory)} to specify a custom factory.
+     */
+    public BlockCompressedOutputStream(final OutputStream os, final Path file, final int compressionLevel) {
         this(os, file, compressionLevel, defaultDeflaterFactory);
     }
 
@@ -193,10 +224,21 @@ public class BlockCompressedOutputStream
      * @param deflaterFactory custom factory to create deflaters (overrides the default)
      */
     public BlockCompressedOutputStream(final OutputStream os, final File file, final int compressionLevel, final DeflaterFactory deflaterFactory) {
+        this(os, IOUtil.toPath(file), compressionLevel, deflaterFactory);
+    }
+
+    /**
+     * Creates the output stream.
+     * @param os output stream to create a BlockCompressedOutputStream from
+     * @param file file to which to write the output or null if not available
+     * @param compressionLevel the compression level (0-9)
+     * @param deflaterFactory custom factory to create deflaters (overrides the default)
+     */
+    public BlockCompressedOutputStream(final OutputStream os, final Path file, final int compressionLevel, final DeflaterFactory deflaterFactory) {
         this.file = file;
         codec = new BinaryCodec(os);
         if (file != null) {
-            codec.setOutputFileName(file.getAbsolutePath());
+            codec.setOutputFileName(file.toAbsolutePath().toUri().toString());
         }
         deflater = deflaterFactory.makeDeflater(compressionLevel, true);
         log.debug("Using deflater: " + deflater.getClass().getSimpleName());
@@ -215,6 +257,19 @@ public class BlockCompressedOutputStream
         } else {
            return (BlockCompressedOutputStream)output;
         }
+    }
+
+    /**
+     * Adds a GZIIndexer to the block compressed output stream to be written to the specified output stream. See
+     * {@link GZIIndex} for details on the index. Note that the stream will be written to disk entirely when close()
+     * is called.
+     * @throws RuntimeException this method is called after output has already been written to the stream.
+     */
+    public void addIndexer(final OutputStream outputStream) {
+        if (mBlockAddress != 0) {
+            throw new RuntimeException("Cannot add gzi indexer if this BlockCompressedOutput stream has already written Gzipped blocks");
+        }
+        indexer = new GZIIndex.GZIIndexer(outputStream);
     }
 
     /**
@@ -273,16 +328,25 @@ public class BlockCompressedOutputStream
      */
     @Override
     public void close() throws IOException {
+        close(true);
+    }
+
+    public void close(final boolean writeTerminatorBlock) throws IOException {
         flush();
         // For debugging...
         // if (numberOfThrottleBacks > 0) {
         //     System.err.println("In BlockCompressedOutputStream, had to throttle back " + numberOfThrottleBacks +
         //                        " times for file " + codec.getOutputFileName());
         // }
-        codec.writeBytes(BlockCompressedStreamConstants.EMPTY_GZIP_BLOCK);
+        if (writeTerminatorBlock) {
+            codec.writeBytes(BlockCompressedStreamConstants.EMPTY_GZIP_BLOCK);
+        }
         codec.close();
+        if (indexer != null) {
+            indexer.close();
+        }
         // Can't re-open something that is not a regular file, e.g. a named pipe or an output stream
-        if (this.file == null || !this.file.isFile()) return;
+        if (this.file == null || !Files.isRegularFile(this.file)) return;
         if (BlockCompressedInputStream.checkTermination(this.file) !=
                 BlockCompressedInputStream.FileTermination.HAS_TERMINATOR_BLOCK) {
             throw new IOException("Terminator block not found after closing BGZF file " + this.file);
@@ -296,6 +360,7 @@ public class BlockCompressedOutputStream
      * @param bite
      * @throws IOException
      */
+    @Override
     public void write(final int bite) throws IOException {
         singleByteArray[0] = (byte)bite;
         write(singleByteArray);
@@ -350,14 +415,13 @@ public class BlockCompressedOutputStream
         final int totalBlockSize = writeGzipBlock(compressedSize, bytesToCompress, crc32.getValue());
         assert(bytesToCompress <= numUncompressedBytes);
 
-        // Clear out from uncompressedBuffer the data that was written
-        if (bytesToCompress == numUncompressedBytes) {
-            numUncompressedBytes = 0;
-        } else {
-            System.arraycopy(uncompressedBuffer, bytesToCompress, uncompressedBuffer, 0,
-                    numUncompressedBytes - bytesToCompress);
-            numUncompressedBytes -= bytesToCompress;
+        // Call out to the indexer if it exists
+        if (indexer != null) {
+            indexer.addGzipBlock(mBlockAddress, numUncompressedBytes);
         }
+
+        // Clear out from uncompressedBuffer the data that was written
+        numUncompressedBytes = 0;
         mBlockAddress += totalBlockSize;
         return totalBlockSize;
     }

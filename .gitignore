@@ -10,7 +10,7 @@ src/htsjdk.iml
 *.iml
 *.ipr
 *.iws
-gradle/
+out/
 
 
 

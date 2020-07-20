@@ -17,8 +17,10 @@
  */
 package htsjdk.samtools.cram.io;
 
+import htsjdk.samtools.util.RuntimeEOFException;
+import htsjdk.samtools.util.RuntimeIOException;
+
 import java.io.DataInputStream;
-import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -41,30 +43,40 @@ public class DefaultBitInputStream extends DataInputStream implements BitInputSt
         this.throwEOF = true;
     }
 
-    public final boolean readBit() throws IOException {
+    @Override
+    public final boolean readBit() {
         if (--nofBufferedBits >= 0)
             return ((byteBuffer >>> nofBufferedBits) & 1) == 1;
 
         nofBufferedBits = 7;
-        byteBuffer = in.read();
+        try {
+            byteBuffer = in.read();
+        } catch (final IOException e) {
+            throw new RuntimeIOException(e);
+        }
         if (byteBuffer == -1) {
             if (throwEOF)
-                throw new EOFException("End of stream.");
+                throw new RuntimeEOFException("End of stream.");
         }
 
         return ((byteBuffer >>> 7) & 1) == 1;
     }
 
-    public final int readBits(int n) throws IOException {
+    @Override
+    public final int readBits(int n) {
         if (n == 0)
             return 0;
         int x = 0;
         while (n > nofBufferedBits) {
             n -= nofBufferedBits;
             x |= rightBits(nofBufferedBits, byteBuffer) << n;
-            byteBuffer = in.read();
+            try {
+                byteBuffer = in.read();
+            } catch (final IOException e) {
+                throw new RuntimeIOException(e);
+            }
             if (byteBuffer == -1) {
-                throw new EOFException("End of stream.");
+                throw new RuntimeEOFException("End of stream.");
             }
 
             nofBufferedBits = 8;
@@ -77,7 +89,8 @@ public class DefaultBitInputStream extends DataInputStream implements BitInputSt
         return x & ((1 << n) - 1);
     }
 
-    public final long readLongBits(int n) throws IOException {
+    @Override
+    public final long readLongBits(int n) {
         if (n > 64)
             throw new RuntimeException("More then 64 bits are requested in one read from bit stream.");
 
@@ -87,9 +100,13 @@ public class DefaultBitInputStream extends DataInputStream implements BitInputSt
         long x = 0;
         long byteBuffer = this.byteBuffer;
         if (nofBufferedBits == 0) {
-            byteBuffer = in.read();
+            try {
+                byteBuffer = in.read();
+            } catch (final IOException e) {
+                throw new RuntimeIOException(e);
+            }
             if (byteBuffer == -1) {
-                throw new EOFException("End of stream.");
+                throw new RuntimeEOFException("End of stream.");
             }
             nofBufferedBits = 8;
         }
@@ -97,9 +114,13 @@ public class DefaultBitInputStream extends DataInputStream implements BitInputSt
         while (n > nofBufferedBits) {
             n -= nofBufferedBits;
             x |= byteBuffer << n;
-            byteBuffer = in.read();
+            try {
+                byteBuffer = in.read();
+            } catch (final IOException e) {
+                throw new RuntimeIOException(e);
+            }
             if (byteBuffer == -1) {
-                throw new EOFException("End of stream.");
+                throw new RuntimeEOFException("End of stream.");
             }
             nofBufferedBits = 8;
         }
@@ -108,6 +129,7 @@ public class DefaultBitInputStream extends DataInputStream implements BitInputSt
         return x | (byteBuffer >>> nofBufferedBits);
     }
 
+    @Override
     public void reset() {
         nofBufferedBits = 0;
         byteBuffer = 0;

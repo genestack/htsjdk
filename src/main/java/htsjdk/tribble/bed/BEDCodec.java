@@ -23,6 +23,8 @@
  */
 package htsjdk.tribble.bed;
 
+import htsjdk.samtools.util.FileExtensions;
+import htsjdk.samtools.util.IOUtil;
 import htsjdk.tribble.AbstractFeatureReader;
 import htsjdk.tribble.AsciiFeatureCodec;
 import htsjdk.tribble.annotation.Strand;
@@ -42,7 +44,11 @@ import java.util.regex.Pattern;
 public class BEDCodec extends AsciiFeatureCodec<BEDFeature> {
 
     /** Default extension for BED files. */
-    public static final String BED_EXTENSION = ".bed";
+    /**
+     * @deprecated since June 2019 Use {@link FileExtensions#BED} instead.
+     */
+    @Deprecated
+    public static final String BED_EXTENSION = FileExtensions.BED;
 
     private static final Pattern SPLIT_PATTERN = Pattern.compile("\\t|( +)");
     private final int startOffsetValue;
@@ -76,8 +82,8 @@ public class BEDCodec extends AsciiFeatureCodec<BEDFeature> {
         if (line.trim().isEmpty()) {
             return null;
         }
-
-        if (line.startsWith("#") || line.startsWith("track") || line.startsWith("browser")) {
+        // discard header lines in case the caller hasn't called readHeader
+        if (isBEDHeaderLine(line)) {
             this.readHeaderLine(line);
             return null;
         }
@@ -86,9 +92,36 @@ public class BEDCodec extends AsciiFeatureCodec<BEDFeature> {
         return decode(tokens);
     }
 
+    /**
+     * The BED codec doesn't retain the actual header, but we need to parse through
+     * it and advance to the beginning of the first feature. This is especially true
+     * if we're indexing, since we want to underlying stream offset to be established
+     * correctly, but is also the case for when we're simply iterating to satisfy a
+     * feature query (otherwise the feature reader can terminate prematurely if the
+     * header is large).
+     * @param lineIterator
+     * @return Always null. The BEDCodec currently doesn't model or preserve the BED header.
+     */
     @Override
-    public Object readActualHeader(LineIterator reader) {
+    public Object readActualHeader(final LineIterator lineIterator) {
+        while (lineIterator.hasNext()) {
+            // Only peek, since we don't want to actually consume a line of input unless its a header line.
+            // This prevents us from advancing past the first feature.
+            final String nextLine = lineIterator.peek();
+            if (isBEDHeaderLine(nextLine)) {
+                // advance the iterator and consume the line (which is a no-op)
+                this.readHeaderLine(lineIterator.next());
+            } else {
+                return null; // break out when we've seen the end of the header
+            }
+        }
+
         return null;
+    }
+
+    // Return true if the candidateLine looks like a BED header line.
+    private boolean isBEDHeaderLine(final String candidateLine) {
+        return candidateLine.startsWith("#") || candidateLine.startsWith("track") || candidateLine.startsWith("browser");
     }
 
     public BEDFeature decode(String[] tokens) {
@@ -202,12 +235,12 @@ public class BEDCodec extends AsciiFeatureCodec<BEDFeature> {
     @Override
     public boolean canDecode(final String path) {
         final String toDecode;
-        if (AbstractFeatureReader.hasBlockCompressedExtension(path)) {
+        if (IOUtil.hasBlockCompressedExtension(path)) {
             toDecode = path.substring(0, path.lastIndexOf("."));
         } else {
             toDecode = path;
         }
-        return toDecode.toLowerCase().endsWith(BED_EXTENSION);
+        return toDecode.toLowerCase().endsWith(FileExtensions.BED);
     }
 
     public int getStartOffset() {

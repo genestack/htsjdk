@@ -24,17 +24,25 @@
 
 package htsjdk.samtools;
 
+import htsjdk.HtsjdkTest;
 import htsjdk.samtools.util.BinaryCodec;
+import htsjdk.samtools.util.FileExtensions;
+import htsjdk.samtools.util.IOUtil;
 import htsjdk.samtools.util.TestUtil;
+import htsjdk.utils.TestNGUtils;
 import org.testng.Assert;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.io.*;
-import java.util.Arrays;
-import java.util.List;
+import java.lang.reflect.Array;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.*;
 
-public class SAMRecordUnitTest {
+public class SAMRecordUnitTest extends HtsjdkTest {
+
+    private static final String ARRAY_TAG = "xa";
 
     @DataProvider(name = "serializationTestData")
     public Object[][] getSerializationTestData() {
@@ -327,7 +335,7 @@ public class SAMRecordUnitTest {
     @Test
     public void test_getUnsignedIntegerAttribute_valid() {
         final String stringTag = "UI";
-        final short binaryTag = SAMTagUtil.getSingleton().makeBinaryTag(stringTag);
+        final short binaryTag = SAMTag.makeBinaryTag(stringTag);
         SAMFileHeader header = new SAMFileHeader();
         SAMRecord record = new SAMRecord(header);
         Assert.assertNull(record.getUnsignedIntegerAttribute(stringTag));
@@ -366,7 +374,7 @@ public class SAMRecordUnitTest {
      */
     @Test
     public void test_getUnsignedIntegerAttribute_valid_alternative() {
-        final short tag = SAMTagUtil.getSingleton().makeBinaryTag("UI");
+        final short tag = SAMTag.makeBinaryTag("UI");
         SAMFileHeader header = new SAMFileHeader();
         SAMRecord record;
 
@@ -449,7 +457,7 @@ public class SAMRecordUnitTest {
 
     @Test
     public void test_setAttribute_null_removes_tag() {
-        final short tag = SAMTagUtil.getSingleton().makeBinaryTag("UI");
+        final short tag = SAMTag.makeBinaryTag("UI");
         SAMFileHeader header = new SAMFileHeader();
         SAMRecord record = new SAMRecord(header);
         Assert.assertNull(record.getUnsignedIntegerAttribute(tag));
@@ -462,7 +470,7 @@ public class SAMRecordUnitTest {
     }
 
     private SAMRecord createTestRecordHelper() {
-        return new SAMRecordSetBuilder().addFrag("test", 0, 1, false, false, "3S9M", null, 2);
+        return new SAMRecordSetBuilder().addFrag("test", 0, 1, false, false, "3S33M", null, 2);
     }
 
     @Test
@@ -775,7 +783,7 @@ public class SAMRecordUnitTest {
     }
 
     @Test
-    private void testNullHeaderDeepCopy() {
+    public void testNullHeaderDeepCopy() {
         SAMRecord sam = createTestRecordHelper();
         sam.setHeader(null);
         final SAMRecord deepCopy = sam.deepCopy();
@@ -804,13 +812,13 @@ public class SAMRecordUnitTest {
     }
 
     @Test
-    private void testNullHeadGetCigarSAM() {
-        SAMRecord sam = createTestRecordHelper();
+    public void testNullHeadGetCigarSAM() {
+        final SAMRecord sam = createTestRecordHelper();
         testNullHeaderCigar(sam);
     }
 
     @Test
-    private void testNullHeadGetCigarBAM() {
+    public void testNullHeadGetCigarBAM() {
         SAMRecord sam = createTestRecordHelper();
         SAMRecordFactory factory = new DefaultSAMRecordFactory();
         BAMRecord bamRec = factory.createBAMRecord(
@@ -1037,5 +1045,140 @@ public class SAMRecordUnitTest {
         rec.setAttribute("Y1", "AAAAGAAAAC");
 
         return(rec);
+    }
+
+    @DataProvider
+    public Object [][] readBasesArrayGetReadLengthData() {
+        return new Object[][]{
+                { null, 0 },
+                { SAMRecord.NULL_SEQUENCE, 0 },
+                { new byte[] {'A', 'C'}, 2 }
+        };
+    }
+
+    @Test(dataProvider = "readBasesArrayGetReadLengthData")
+    public void testReadBasesGetReadLength(final byte[] readBases, final int readLength) {
+        final SAMRecord sam = createTestRecordHelper();
+        sam.setReadBases(readBases);
+        Assert.assertEquals(sam.getReadLength(), readLength);
+    }
+
+    @DataProvider
+    public Object [][] readBasesStringGetReadLengthData() {
+        return new Object[][]{
+                { null, 0 },
+                { SAMRecord.NULL_SEQUENCE_STRING, 0 },
+                { "AC", 2 }
+        };
+    }
+
+    @Test(dataProvider = "readBasesStringGetReadLengthData")
+    public void testReadStringGetReadLength(final String readBases, final int readLength) {
+        final SAMRecord sam = createTestRecordHelper();
+        sam.setReadString(readBases);
+        Assert.assertEquals(sam.getReadLength(), readLength);
+    }
+
+    @DataProvider(name = "attributeAccessTestData")
+    private Object[][] hasAttributeTestData() throws IOException {
+        final SamReader reader = SamReaderFactory.makeDefault().open(new File("src/test/resources/htsjdk/samtools/SAMIntegerTagTest/variousAttributes.sam"));
+        final SAMRecord samRecordWithAttributes = reader.iterator().next();
+        final SAMRecord samRecordWithoutAnyAttributes = new SAMRecord(reader.getFileHeader());
+        reader.close();
+
+        return new Object[][] {
+                {samRecordWithAttributes, "MF", true},
+                {samRecordWithAttributes, "Nm", true},
+                {samRecordWithAttributes, "H0", true},
+                {samRecordWithAttributes, "H1", true},
+                {samRecordWithAttributes, "SB", true},
+                {samRecordWithAttributes, "UB", true},
+                {samRecordWithAttributes, "SS", true},
+                {samRecordWithAttributes, "US", true},
+                {samRecordWithAttributes, "SI", true},
+                {samRecordWithAttributes, "I2", true},
+                {samRecordWithAttributes, "UI", true},
+
+                {samRecordWithAttributes, "AS", false},
+
+                {samRecordWithoutAnyAttributes, "RG", false}
+        };
+    }
+
+    @Test(dataProvider = "attributeAccessTestData")
+    public void testHasAttribute(final SAMRecord samRecord, final String tag, final boolean expectedHasAttribute) {
+        Assert.assertEquals(samRecord.hasAttribute(tag), expectedHasAttribute);
+    }
+
+    @Test
+    public void test_setAttribute_empty_array() {
+        final SAMFileHeader header = new SAMFileHeader();
+        final SAMRecord record = new SAMRecord(header);
+        Assert.assertNull(record.getStringAttribute(ARRAY_TAG));
+        record.setAttribute(ARRAY_TAG, new int[0]);
+        Assert.assertNotNull(record.getSignedIntArrayAttribute(ARRAY_TAG));
+        Assert.assertEquals(record.getSignedIntArrayAttribute(ARRAY_TAG), new int[0]);
+        Assert.assertEquals(record.getAttribute(ARRAY_TAG), new char[0]);
+        record.setAttribute(ARRAY_TAG, null);
+        Assert.assertNull(record.getStringAttribute(ARRAY_TAG));
+    }
+
+    private static Object[][] getEmptyArrays() {
+        return new Object[][]{
+                {new int[0], int[].class},
+                {new short[0], short[].class},
+                {new byte[0], byte[].class},
+                {new float[0], float[].class},
+        };
+    }
+
+    private static Object[][] getFileExtensions(){
+        return new Object[][]{
+                {FileExtensions.BAM}, {FileExtensions.SAM}, {FileExtensions.CRAM}
+        };
+    }
+
+    @DataProvider
+    public Object[][] getEmptyArraysAndExtensions(){
+        return TestNGUtils.cartesianProduct(getEmptyArrays(), getFileExtensions());
+    }
+
+    @Test(dataProvider = "getEmptyArraysAndExtensions")
+    public void testWriteSamWithEmptyArray(Object emptyArray, Class<?> arrayClass, String fileExtension) throws IOException {
+        Assert.assertEquals(emptyArray.getClass(), arrayClass);
+        Assert.assertEquals(Array.getLength(emptyArray), 0);
+
+        final SAMRecordSetBuilder samRecords = new SAMRecordSetBuilder();
+        samRecords.addFrag("Read", 0, 100, false);
+        final SAMRecord record = samRecords.getRecords().iterator().next();
+        record.setAttribute(ARRAY_TAG, emptyArray);
+        checkArrayIsEmpty(ARRAY_TAG, record, arrayClass);
+
+        final Path tmp = Files.createTempFile("tmp", fileExtension);
+        IOUtil.deleteOnExit(tmp);
+
+        final SAMFileWriterFactory writerFactory = new SAMFileWriterFactory()
+                .setCreateMd5File(false)
+                .setCreateIndex(false);
+        final Path reference = IOUtil.getPath("src/test/resources/htsjdk/samtools/one-contig.fasta");
+        try (final SAMFileWriter samFileWriter = writerFactory.makeWriter(samRecords.getHeader(), false, tmp, reference)) {
+            samFileWriter.addAlignment(record);
+        }
+
+        try (final SamReader reader = SamReaderFactory.makeDefault()
+                .referenceSequence(reference)
+                .open(tmp)) {
+            final SAMRecordIterator iterator = reader.iterator();
+            Assert.assertTrue(iterator.hasNext());
+            final SAMRecord recordFromDisk = iterator.next();
+            checkArrayIsEmpty(ARRAY_TAG, recordFromDisk, arrayClass);
+        }
+    }
+
+    private static void checkArrayIsEmpty(String arrayTag, SAMRecord recordFromDisk, Class<?> expectedClass) {
+        final Object attribute = recordFromDisk.getAttribute(arrayTag);
+        Assert.assertNotNull(attribute);
+        Assert.assertEquals(attribute.getClass(), expectedClass);
+        Assert.assertEquals(Array.getLength(attribute), 0);
     }
 }

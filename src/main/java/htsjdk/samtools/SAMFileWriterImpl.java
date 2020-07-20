@@ -28,6 +28,7 @@ import htsjdk.samtools.util.SortingCollection;
 
 import java.io.File;
 import java.io.StringWriter;
+import java.util.function.Supplier;
 
 /**
  * Base class for implementing SAM writer with any underlying format.
@@ -75,6 +76,7 @@ public abstract class SAMFileWriterImpl implements SAMFileWriter
      * Sets the progress logger used by this implementation. Setting this lets this writer emit log
      * messages as SAM records in a SortingCollection are being written to disk.
      */
+    @Override
     public void setProgressLogger(final ProgressLoggerInterface progress) {
         this.progressLogger = progress;
     }
@@ -104,22 +106,30 @@ public abstract class SAMFileWriterImpl implements SAMFileWriter
      * before spilling to disk.  Must be called before setHeader().
      * @param maxRecordsInRam
      */
-    void setMaxRecordsInRam(final int maxRecordsInRam) {
+    protected void setMaxRecordsInRam(final int maxRecordsInRam) {
         if (this.header != null) {
             throw new IllegalStateException("setMaxRecordsInRam must be called before setHeader()");
         }
         this.maxRecordsInRam = maxRecordsInRam;
     }
-    
+
+    protected int getMaxRecordsInRam() {
+        return maxRecordsInRam;
+    }
+
     /**
      * When writing records that are not presorted, specify the path of the temporary directory 
      * for spilling to disk.  Must be called before setHeader().
      * @param tmpDir path to the temporary directory
      */
-    void setTempDirectory(final File tmpDir) {
+    protected void setTempDirectory(final File tmpDir) {
         if (tmpDir!=null) {
             this.tmpDir = tmpDir;
         }
+    }
+
+    protected File getTempDirectory() {
+        return tmpDir;
     }
 
     /**
@@ -135,11 +145,8 @@ public abstract class SAMFileWriterImpl implements SAMFileWriter
              sortOrder = SAMFileHeader.SortOrder.unsorted;
         }
         header.setSortOrder(sortOrder);
-        final StringWriter headerTextBuffer = new StringWriter();
-        new SAMTextHeaderCodec().encode(headerTextBuffer, header);
-        final String headerText = headerTextBuffer.toString();
 
-        writeHeader(headerText);
+        writeHeader(header);
 
         if (presorted) {
             if (sortOrder.equals(SAMFileHeader.SortOrder.unsorted)) {
@@ -149,26 +156,13 @@ public abstract class SAMFileWriterImpl implements SAMFileWriter
             }
         } else if (!sortOrder.equals(SAMFileHeader.SortOrder.unsorted)) {
             alignmentSorter = SortingCollection.newInstance(SAMRecord.class,
-                    new BAMRecordCodec(header), makeComparator(), maxRecordsInRam, tmpDir);
+                    new BAMRecordCodec(header), sortOrder.getComparatorInstance(), maxRecordsInRam, tmpDir);
         }
     }
 
+    @Override
     public SAMFileHeader getFileHeader() {
         return header;
-    }
-
-    private SAMRecordComparator makeComparator() {
-        switch (sortOrder) {
-            case coordinate:
-                return new SAMRecordCoordinateComparator();
-            case queryname:
-                return new SAMRecordQueryNameComparator();
-            case duplicate:
-                return new SAMRecordDuplicateComparator();
-            case unsorted:
-                return null;
-        }
-        throw new IllegalStateException("sortOrder should not be null");
     }
 
     /**
@@ -180,6 +174,7 @@ public abstract class SAMFileWriterImpl implements SAMFileWriter
      * @throws IllegalArgumentException if the record's reference or mate reference indices cannot be
      * resolved against the writer's header using the current reference and mate reference names
      */
+    @Override
     public void addAlignment(final SAMRecord alignment)
     {
         alignment.setHeaderStrict(header); // re-establish the record header and resolve reference indices
@@ -206,19 +201,27 @@ public abstract class SAMFileWriterImpl implements SAMFileWriter
     /**
      * Must be called or else file will likely be defective.
      */
+    @Override
     public final void close()
     {
-        if (!isClosed) {
-            if (alignmentSorter != null) {
-                for (final SAMRecord alignment : alignmentSorter) {
-                    writeAlignment(alignment);
-                    if (progressLogger != null) progressLogger.record(alignment);
+        try {
+            if (!isClosed) {
+                if (alignmentSorter != null) {
+                    try {
+                        for (final SAMRecord alignment : alignmentSorter) {
+                            writeAlignment(alignment);
+                            if (progressLogger != null)
+                                progressLogger.record(alignment);
+                        }
+                    } finally {
+                        alignmentSorter.cleanup();
+                    }
                 }
-                alignmentSorter.cleanup();
+                finish();
             }
-            finish();
+        } finally {
+            isClosed = true;
         }
-        isClosed = true;
     }
 
     /**
@@ -231,8 +234,26 @@ public abstract class SAMFileWriterImpl implements SAMFileWriter
     /**
      * Write the header to disk.  Header object is available via getHeader().
      * @param textHeader for convenience if the implementation needs it.
+     * @deprecated since 06/2018. {@link #writeHeader(SAMFileHeader)} is preferred for avoid String construction if not need it.
      */
+    @Deprecated
     abstract protected void writeHeader(String textHeader);
+
+    /**
+     * Write the header to disk. Header object is available via getHeader().
+     *
+     * <p>IMPORTANT: this method will be abstract once {@link #writeHeader(String)} is removed.
+     *
+     * <p>Note: default implementation uses {@link SAMTextHeaderCodec#encode} and calls
+     * {@link #writeHeader(String)}.
+     *
+     * @param header object to write.
+     */
+    protected void writeHeader(final SAMFileHeader header) {
+        final StringWriter headerTextBuffer = new StringWriter();
+        new SAMTextHeaderCodec().encode(headerTextBuffer, header);
+        writeHeader(headerTextBuffer.toString());
+    }
 
     /**
      * Do any required flushing here.

@@ -43,7 +43,6 @@ public class SAMTextWriter extends SAMFileWriterImpl {
     // For error reporting only.
     private final File file;
     private final TextTagCodec tagCodec = new TextTagCodec();
-    private final SAMTagUtil tagUtil = new SAMTagUtil();
 
     private final SamFlagField samFlagFieldOutput;
     
@@ -122,6 +121,7 @@ public class SAMTextWriter extends SAMFileWriterImpl {
      *
      * @param alignment SAMRecord.
      */
+    @Override
     public void writeAlignment(final SAMRecord alignment) {
         try {
             out.write(alignment.getReadName());
@@ -157,9 +157,9 @@ public class SAMTextWriter extends SAMFileWriterImpl {
                 out.write(FIELD_SEPARATOR);
                 final String encodedTag;
                 if (attribute.isUnsignedArray()) {
-                    encodedTag = tagCodec.encodeUnsignedArray(tagUtil.makeStringTag(attribute.tag), attribute.value);
+                    encodedTag = tagCodec.encodeUnsignedArray(SAMTag.makeStringTag(attribute.tag), attribute.value);
                 } else {
-                    encodedTag = tagCodec.encode(tagUtil.makeStringTag(attribute.tag), attribute.value);
+                    encodedTag = tagCodec.encode(SAMTag.makeStringTag(attribute.tag), attribute.value);
                 }
                 out.write(encodedTag);
                 attribute = attribute.getNext();
@@ -188,6 +188,7 @@ public class SAMTextWriter extends SAMFileWriterImpl {
      *
      * @param textHeader String containing the text to write.
      */
+    @Override
     public void writeHeader(final String textHeader) {
         try {
             out.write(textHeader);
@@ -196,9 +197,15 @@ public class SAMTextWriter extends SAMFileWriterImpl {
         }
     }
 
+    @Override
+    protected void writeHeader(final SAMFileHeader header) {
+        new SAMTextHeaderCodec().encode(out, header);
+    }
+
     /**
      * Do any required flushing here.
      */
+    @Override
     public void finish() {
         try {
             out.close();
@@ -212,6 +219,7 @@ public class SAMTextWriter extends SAMFileWriterImpl {
      *
      * @return Output filename, or null if there isn't one.
      */
+    @Override
     public String getFilename() {
         if (file == null) {
             return null;

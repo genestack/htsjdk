@@ -17,6 +17,7 @@
  */
 package htsjdk.samtools.cram.io;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -24,28 +25,24 @@ import java.io.InputStream;
  * An interface to describe the requirements for reading bit data as opposed to bytes. Implementors must keep track of the amount of data
  * read similar to {@link InputStream} concept.
  */
-public interface BitInputStream {
+public interface BitInputStream extends Closeable {
 
     /**
      * Reads a single bit from the stream.
-     *
-     * @throws IOException as per streaming contract in java.
      */
-    boolean readBit() throws IOException;
+    boolean readBit();
 
     /**
      * Read specified number of bits from the stream. The bits are return in an integer value.
      *
      * @param length number of bits to read
-     * @throws IOException as per streaming contract in java.
      */
-    int readBits(int length) throws IOException;
+    int readBits(int length);
 
     /**
      * Read specified number of bits from the stream. The bits are return in a long value.
      *
      * @param length number of bits to read
-     * @throws IOException as per streaming contract in java.
      */
-    long readLongBits(int length) throws IOException;
+    long readLongBits(int length);
 }

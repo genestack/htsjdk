@@ -24,6 +24,8 @@
 
 package htsjdk.samtools;
 
+import htsjdk.samtools.util.BlockCompressedFilePointerUtil;
+
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.PrintWriter;
@@ -68,15 +70,14 @@ class TextualBAMIndexWriter implements BAMIndexWriter {
     /**
      * Write this content as human-readable text
      */
+    @Override
     public void writeReference(final BAMIndexContent content) {
 
-        final int reference = content.getReferenceSequence();
-
         if (content == null) {
-            writeNullContent(reference);
-            count++;
-            return;
+            throw new NullPointerException("BAMIndexContent cannot be null");
         }
+
+        final int reference = content.getReferenceSequence();
 
         if (reference != count){
             throw new SAMException("Reference on content is " + reference + " but expecting reference " + count);
@@ -109,7 +110,7 @@ class TextualBAMIndexWriter implements BAMIndexWriter {
                 pw.println("  Ref " + reference + " bin " + bin.getBinNumber() + " has no chunkList");
                 continue;
             }
-            pw.print("  Ref " + reference + " bin " + bin.getBinNumber() + " has n_chunk= " + chunkList.size());
+            pw.println("  Ref " + reference + " bin " + bin.getBinNumber() + " (" + GenomicIndexUtil.getBinSummaryString(bin.getBinNumber()) + ") has n_chunk= " + chunkList.size());
             if (chunkList.isEmpty()) {
                  pw.println();
             }
@@ -135,7 +136,8 @@ class TextualBAMIndexWriter implements BAMIndexWriter {
         pw.println("Reference " + reference + " has n_intv= " + n_intv);
         for (int k = 0; k < entries.length; k++) {
             if (entries[k] != 0) {
-                pw.println("  Ref " + reference + " ioffset for " + (k + indexStart) + " is " + Long.toString(entries[k]));
+                pw.println("  Ref " + reference + " ioffset for " + (k + indexStart) + " is " +
+                        BlockCompressedFilePointerUtil.asAddressOffsetString(entries[k]));
             }
         }
         pw.flush ();  // write each reference to disk as it's being created
@@ -148,7 +150,7 @@ class TextualBAMIndexWriter implements BAMIndexWriter {
      */
     private void writeChunkMetaData(final int reference, final BAMIndexMetaData metaData) {
         final int nChunks = metaData == null ? 0 : 2;
-        pw.print("  Ref " + reference + " bin 37450 has n_chunk= " + nChunks);
+        pw.println("  Ref " + reference + " bin 37450 has n_chunk= " + nChunks);
         if (nChunks == 0) {
             pw.println();
         } else {
@@ -161,6 +163,11 @@ class TextualBAMIndexWriter implements BAMIndexWriter {
         }
 
     }
+
+    private void writeNullContent() {
+        pw.println("Reference <unknown> has n_bin=0");
+        pw.println("Reference <unknown> has n_intv=0");
+    }
        
     private void writeNullContent(final int reference) {
         pw.println("Reference " + reference + " has n_bin=0");
@@ -172,6 +179,7 @@ class TextualBAMIndexWriter implements BAMIndexWriter {
      *
      * @param noCoordinateCount the count of records seen with no coordinate positions in the start coordinate
      */
+    @Override
     public void writeNoCoordinateRecordCount(final Long noCoordinateCount) {
         pw.println("No Coordinate Count=" + noCoordinateCount);
     }
@@ -179,6 +187,7 @@ class TextualBAMIndexWriter implements BAMIndexWriter {
     /**
      * Any necessary processing at the end of the file
      */
+    @Override
     public void close() {
         pw.close();
     }

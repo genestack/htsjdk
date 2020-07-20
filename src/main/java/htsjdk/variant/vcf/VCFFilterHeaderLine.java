@@ -26,6 +26,7 @@
 package htsjdk.variant.vcf;
 
 import java.util.Arrays;
+import java.util.Collections;
 
 /**
  * @author ebanks
@@ -33,6 +34,8 @@ import java.util.Arrays;
  * A class representing a key=value entry for FILTER fields in the VCF header
  */
 public class VCFFilterHeaderLine extends VCFSimpleHeaderLine  {
+    
+    private static final long serialVersionUID = 1L;
 
     /**
      * create a VCF filter header line
@@ -40,7 +43,7 @@ public class VCFFilterHeaderLine extends VCFSimpleHeaderLine  {
      * @param name         the name for this header line
      * @param description  the description for this header line
      */
-    public VCFFilterHeaderLine(String name, String description) {
+    public VCFFilterHeaderLine(final String name, final String description) {
         super("FILTER", name, description);
     }
 
@@ -48,7 +51,7 @@ public class VCFFilterHeaderLine extends VCFSimpleHeaderLine  {
      * Convenience constructor for FILTER whose description is the name
      * @param name
      */
-    public VCFFilterHeaderLine(String name) {
+    public VCFFilterHeaderLine(final String name) {
         super("FILTER", name, name);
     }
 
@@ -58,12 +61,20 @@ public class VCFFilterHeaderLine extends VCFSimpleHeaderLine  {
      * @param line      the header line
      * @param version   the vcf header version
      */
-    public VCFFilterHeaderLine(String line, VCFHeaderVersion version) {
-        super(line, version, "FILTER", Arrays.asList("ID", "Description"));
+    public VCFFilterHeaderLine(final String line, final VCFHeaderVersion version) {
+        super(line, version, "FILTER", Arrays.asList("ID", "Description"), Collections.emptyList());
     }
 
     @Override
     public boolean shouldBeAddedToDictionary() {
         return true;
+    }
+    
+    /**
+     * get the "Description" field
+     * @return the "Description" field
+     */
+    public String getDescription() {
+        return getGenericFieldValue("Description");
     }
 }

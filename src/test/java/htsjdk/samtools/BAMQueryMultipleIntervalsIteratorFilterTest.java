@@ -1,5 +1,7 @@
 package htsjdk.samtools;
 
+import htsjdk.HtsjdkTest;
+import htsjdk.samtools.util.TestUtil;
 import org.testng.Assert;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
@@ -7,10 +9,10 @@ import org.testng.annotations.Test;
 import java.util.Arrays;
 import java.util.Random;
 
-public class BAMQueryMultipleIntervalsIteratorFilterTest {
+public class BAMQueryMultipleIntervalsIteratorFilterTest extends HtsjdkTest {
 
     private final byte[] BASES = {'A', 'C', 'G', 'T'};
-    private final Random random = new Random();
+    private final Random random = new Random(TestUtil.RANDOM_SEED);
 
     @DataProvider(name="compareIntervalToRecord")
     public Object[][] compareIntervalToRecord() {

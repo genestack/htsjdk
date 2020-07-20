@@ -23,12 +23,13 @@
  */
 package htsjdk.samtools.util;
 
+import htsjdk.HtsjdkTest;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
 import java.util.Iterator;
 
-public class IntervalTreeMapTest {
+public class IntervalTreeMapTest extends HtsjdkTest {
     @Test
     public void testBasic() {
         IntervalTreeMap<Interval> m=new IntervalTreeMap<Interval>();
@@ -37,8 +38,8 @@ public class IntervalTreeMapTest {
         m.put(chr1Interval, chr1Interval);
         Interval chr2Interval = new Interval("chr2", 1,200);
         m.put(chr2Interval, chr2Interval);
-        
-        
+
+
         Assert.assertTrue(m.containsContained(new Interval("chr1", 9,101)));
         Assert.assertTrue(m.containsOverlapping(new Interval("chr1", 50,150)));
         Assert.assertFalse(m.containsOverlapping(new Interval("chr3", 1,100)));

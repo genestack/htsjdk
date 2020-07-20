@@ -26,7 +26,6 @@
 package htsjdk.variant.variantcontext;
 
 import htsjdk.samtools.util.StringUtil;
-import htsjdk.variant.vcf.VCFConstants;
 
 import java.io.Serializable;
 import java.util.Arrays;
@@ -119,6 +118,11 @@ public class Allele implements Comparable<Allele>, Serializable {
     public static final long serialVersionUID = 1L;
 
     private static final byte[] EMPTY_ALLELE_BASES = new byte[0];
+    private static final char SINGLE_BREAKEND_INDICATOR = '.';
+    private static final char BREAKEND_EXTENDING_RIGHT = '[';
+    private static final char BREAKEND_EXTENDING_LEFT = ']';
+    private static final char SYMBOLIC_ALLELE_START = '<';
+    private static final char SYMBOLIC_ALLELE_END = '>';
 
     private boolean isRef = false;
     private boolean isNoCall = false;
@@ -127,10 +131,14 @@ public class Allele implements Comparable<Allele>, Serializable {
     private byte[] bases = null;
 
     /** A generic static NO_CALL allele for use */
-    public final static String NO_CALL_STRING = ".";
+    public static final String NO_CALL_STRING = ".";
 
     /** A generic static SPAN_DEL allele for use */
-    public final static String SPAN_DEL_STRING = "*";
+    public static final String SPAN_DEL_STRING = "*";
+
+    /** Non ref allele representations */
+    public static final String NON_REF_STRING = "<NON_REF>";
+    public static final String UNSPECIFIED_ALTERNATE_ALLELE_STRING = "<*>";
 
     // no public way to create an allele
     protected Allele(final byte[] bases, final boolean isRef) {
@@ -182,19 +190,31 @@ public class Allele implements Comparable<Allele>, Serializable {
         this.isSymbolic = allele.isSymbolic;
     }
 
+    public static final Allele REF_A = new Allele("A", true);
+    public static final Allele ALT_A = new Allele("A", false);
+    public static final Allele REF_C = new Allele("C", true);
+    public static final Allele ALT_C = new Allele("C", false);
+    public static final Allele REF_G = new Allele("G", true);
+    public static final Allele ALT_G = new Allele("G", false);
+    public static final Allele REF_T = new Allele("T", true);
+    public static final Allele ALT_T = new Allele("T", false);
+    public static final Allele REF_N = new Allele("N", true);
+    public static final Allele ALT_N = new Allele("N", false);
+    public static final Allele SPAN_DEL = new Allele(SPAN_DEL_STRING, false);
+    public static final Allele NO_CALL = new Allele(NO_CALL_STRING, false);
+    public static final Allele NON_REF_ALLELE = new Allele(NON_REF_STRING, false);
+    public static final Allele UNSPECIFIED_ALTERNATE_ALLELE = new Allele(UNSPECIFIED_ALTERNATE_ALLELE_STRING, false);
 
-    private final static Allele REF_A = new Allele("A", true);
-    private final static Allele ALT_A = new Allele("A", false);
-    private final static Allele REF_C = new Allele("C", true);
-    private final static Allele ALT_C = new Allele("C", false);
-    private final static Allele REF_G = new Allele("G", true);
-    private final static Allele ALT_G = new Allele("G", false);
-    private final static Allele REF_T = new Allele("T", true);
-    private final static Allele ALT_T = new Allele("T", false);
-    private final static Allele REF_N = new Allele("N", true);
-    private final static Allele ALT_N = new Allele("N", false);
-    public final static Allele SPAN_DEL = new Allele(SPAN_DEL_STRING, false);
-    public final static Allele NO_CALL = new Allele(NO_CALL_STRING, false);
+    // for simple deletion, e.g. "ALT==<DEL>" (note that the spec allows, for now at least, alt alleles like <DEL:ME>)
+    public static final Allele SV_SIMPLE_DEL = StructuralVariantType.DEL.toSymbolicAltAllele();
+    // for simple insertion, e.g. "ALT==<INS>"
+    public static final Allele SV_SIMPLE_INS = StructuralVariantType.INS.toSymbolicAltAllele();
+    // for simple inversion, e.g. "ALT==<INV>"
+    public static final Allele SV_SIMPLE_INV = StructuralVariantType.INV.toSymbolicAltAllele();
+    // for simple generic cnv, e.g. "ALT==<CNV>"
+    public static final Allele SV_SIMPLE_CNV = StructuralVariantType.CNV.toSymbolicAltAllele();
+    // for simple duplication, e.g. "ALT==<DUP>"
+    public static final Allele SV_SIMPLE_DUP = StructuralVariantType.DUP.toSymbolicAltAllele();
 
     // ---------------------------------------------------------------------------------------------------------
     //
@@ -279,16 +299,43 @@ public class Allele implements Comparable<Allele>, Serializable {
 
     /**
      * @param bases  bases representing an allele
-     * @return true if the bases represent a symbolic allele
+     * @return true if the bases represent a symbolic allele, including breakpoints and breakends
      */
     public static boolean wouldBeSymbolicAllele(final byte[] bases) {
     	if ( bases.length <= 1 )
             return false;
         else {
-            final String strBases = new String(bases);
-            return (bases[0] == '<' || bases[bases.length-1] == '>') || // symbolic or large insertion
-            		(bases[0] == '.' || bases[bases.length-1] == '.') || // single breakend
-                    (strBases.contains("[") || strBases.contains("]")); // mated breakend
+            return bases[0] == SYMBOLIC_ALLELE_START || bases[bases.length - 1] == SYMBOLIC_ALLELE_END ||
+                    wouldBeBreakpoint(bases) ||
+                    wouldBeSingleBreakend(bases);
+        }
+    }
+
+    /**
+     * @param bases  bases representing an allele
+     * @return true if the bases represent a symbolic allele in breakpoint notation, (ex: G]17:198982] or ]13:123456]T )
+     */
+    public static boolean wouldBeBreakpoint(final byte[] bases) {
+        if (bases.length <= 1) {
+            return false;
+        }
+        for (int i = 0; i < bases.length; i++) {
+            final byte base = bases[i];
+            if (base == BREAKEND_EXTENDING_LEFT || base == BREAKEND_EXTENDING_RIGHT) {
+                return true;
+            }
+        }
+        return false;
+    }
+    /**
+     * @param bases  bases representing an allele
+     * @return true if the bases represent a symbolic allele in single breakend notation (ex: .A or A. )
+     */
+    public static boolean wouldBeSingleBreakend(final byte[] bases) {
+        if ( bases.length <= 1 )
+            return false;
+        else {
+            return bases[0] == SINGLE_BREAKEND_INDICATOR || bases[bases.length - 1] == SINGLE_BREAKEND_INDICATOR;
         }
     }
 
@@ -393,18 +440,25 @@ public class Allele implements Comparable<Allele>, Serializable {
     //
     // ---------------------------------------------------------------------------------------------------------
 
-    // Returns true if this is the NO_CALL allele
+    /** @return true if this is the NO_CALL allele */
     public boolean isNoCall()           { return isNoCall; }
     // Returns true if this is not the NO_CALL allele
     public boolean isCalled()           { return ! isNoCall(); }
 
-    // Returns true if this Allele is the reference allele
+    /** @return true if this Allele is the reference allele */
     public boolean isReference()        { return isRef; }
-    // Returns true if this Allele is not the reference allele
+
+    /** @return true if this Allele is not the reference allele */
     public boolean isNonReference()     { return ! isReference(); }
 
-    // Returns true if this Allele is symbolic (i.e. no well-defined base sequence)
+    /** @return true if this Allele is symbolic (i.e. no well-defined base sequence), this includes breakpoints and breakends */
     public boolean isSymbolic()         { return isSymbolic; }
+
+    /** @return true if this Allele is a breakpoint ( ex: G]17:198982] or ]13:123456]T ) */
+    public boolean isBreakpoint()         { return wouldBeBreakpoint(bases); }
+
+    /** @return true if this Allele is a single breakend (ex: .A or A.) */
+    public boolean isSingleBreakend()         { return wouldBeSingleBreakend(bases); }
 
     // Returns a nice string representation of this object
     public String toString() {
@@ -523,6 +577,7 @@ public class Allele implements Comparable<Allele>, Serializable {
             return null;    // couldn't find anything
     }
 
+    @Override
     public int compareTo(final Allele other) {
         if ( isReference() && other.isNonReference() )
             return -1;
@@ -542,5 +597,12 @@ public class Allele implements Comparable<Allele>, Serializable {
     private static boolean firstIsPrefixOfSecond(final Allele a1, final Allele a2) {
         String a1String = a1.getBaseString();
         return a2.getBaseString().substring(0, a1String.length()).equals(a1String);
+    }
+
+    /**
+     *  @return true if Allele is either {@code <NON_REF>} or {@code <*>}
+     */
+    public boolean isNonRefAllele() {
+        return equals(NON_REF_ALLELE) || equals(UNSPECIFIED_ALTERNATE_ALLELE);
     }
 }

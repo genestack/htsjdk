@@ -24,10 +24,11 @@
  */
 package htsjdk.samtools;
 
+import htsjdk.HtsjdkTest;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-public class SAMFlagTest {
+public class SAMFlagTest extends HtsjdkTest {
     @Test
     public void testFlags() {
         Assert.assertTrue(SAMFlag.getFlags(83).contains(SAMFlag.READ_PAIRED));
@@ -37,6 +38,7 @@ public class SAMFlagTest {
         Assert.assertFalse(SAMFlag.getFlags(83).contains(SAMFlag.READ_UNMAPPED));
         Assert.assertFalse(SAMFlag.getFlags(83).contains(SAMFlag.MATE_UNMAPPED));
         Assert.assertTrue(SAMFlag.getFlags(0).isEmpty());
-        Assert.assertEquals(SAMFlag.getFlags(4095).size(),12);
+        // TODO: this test should be modified once the deprecated NOT_PRIMARY_ALIGNMENT is removed
+        Assert.assertEquals(SAMFlag.getFlags(4095).size(), 13);
     }
 }

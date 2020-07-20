@@ -98,7 +98,7 @@ public class VCFCodec extends AbstractVCFCodec {
                     version = VCFHeaderVersion.toHeaderVersion(lineFields[1]);
                     if ( ! version.isAtLeastAsRecentAs(VCFHeaderVersion.VCF4_0) )
                         throw new TribbleException.InvalidHeader("This codec is strictly for VCFv4; please use the VCF3 codec for " + lineFields[1]);
-                    if ( version != VCFHeaderVersion.VCF4_0 && version != VCFHeaderVersion.VCF4_1 && version != VCFHeaderVersion.VCF4_2 )
+                    if ( version != VCFHeaderVersion.VCF4_0 && version != VCFHeaderVersion.VCF4_1 && version != VCFHeaderVersion.VCF4_2 && version != VCFHeaderVersion.VCF4_3)
                         throw new TribbleException.InvalidHeader("This codec is strictly for VCFv4 and does not support " + lineFields[1]);
                 }
                 headerStrings.add(lineIterator.next());
@@ -125,6 +125,7 @@ public class VCFCodec extends AbstractVCFCodec {
      * @param filterString the string to parse
      * @return a set of the filters applied or null if filters were not applied to the record (e.g. as per the missing value in a VCF)
      */
+    @Override
     protected List<String> parseFilters(final String filterString) {
         // null for unfiltered
         if ( filterString.equals(VCFConstants.UNFILTERED) )

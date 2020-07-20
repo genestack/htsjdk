@@ -11,13 +11,15 @@ import java.net.URL;
 
 public class EnaRefService {
     private static final Log log = Log.getInstance(EnaRefService.class);
-    private static final int HTTP_OK = 200;
+    private static final int HTTP_OK = HttpURLConnection.HTTP_OK;
     private static final int HTTP_FOUND = 302;
-    private static final int HTTP_NOT_FOUND = 404;
-    private static final int HTTP_INTERNAL_SEVER_PROBLEM = 500;
+    private static final int HTTP_NOT_FOUND = HttpURLConnection.HTTP_NOT_FOUND;
+    private static final int HTTP_INTERNAL_SEVER_PROBLEM = HttpURLConnection.HTTP_INTERNAL_ERROR;
+    // this is a non-standard code and I'm not sure why it's here
     private static final int HTTP_CONNECTION_TIMEOUT = 522;
+    private static final int HTTP_MOVED_PERMANENTLY = HttpURLConnection.HTTP_MOVED_PERM;
 
-    byte[] getSequence(final String md5) throws GaveUpException {
+    byte[] getSequence(final String md5) {
         final int restBetweenTries_ms = 0;
         final int maxTries = 1;
         final int timeout_ms = 0;
@@ -29,21 +31,21 @@ public class EnaRefService {
      * try downloading the sequence many times before giving up.
      *
      * @param md5                 MD5 checksum string of the sequence to download
-     * @param timeoutMs          timeout in milliseconds before failing with the {@link EnaRefService.GaveUpException}
-     * @param maxTries            maximum number of tries before failing with the {@link EnaRefService.GaveUpException}
+     * @param timeoutMs          timeout in milliseconds before failing with the {@link GaveUpException}
+     * @param maxTries            maximum number of tries before failing with the {@link GaveUpException}
      * @param restBetweenTriesMs wait this number of milliseconds before repeating attempt
      * @return sequence bases or null if there is no sequence with such md5
      * @throws GaveUpException if the sequence could not be downloaded within the time/try
      *                         limit.
      */
-    byte[] getSequence(final String md5, final long timeoutMs, int maxTries, final long restBetweenTriesMs) throws
-            GaveUpException {
+    byte[] getSequence(final String md5, final long timeoutMs, int maxTries, final long restBetweenTriesMs) {
         if (md5 == null)
             throw new NullPointerException("Expecting sequence md5 but got null.");
         if (!md5.matches("[a-z0-9]{32}"))
             throw new RuntimeException("Does not look like an md5 checksum: " + md5);
 
-        final String httpEbiString = "http://www.ebi.ac.uk/ena/cram/md5/%s";
+        // from https://www.ebi.ac.uk/ena/software/cram-reference-registry
+        final String httpEbiString = "https://www.ebi.ac.uk/ena/cram/md5/%s";
         final String urlString = String.format(httpEbiString, md5);
         final URL url;
         try {
@@ -75,6 +77,12 @@ public class EnaRefService {
                     case HTTP_CONNECTION_TIMEOUT:
                     case HTTP_INTERNAL_SEVER_PROBLEM:
                         break;
+                    case HTTP_MOVED_PERMANENTLY:
+                        log.error("It seems that the base URL for the ENA service has changed permanently. Got error:" + code +
+                        "\n Please contact the HtsJdk developers at www.github.com/samtools/htsjdk. \n" +
+                                "Tried to access "+ url + "\n" +
+                                "Response header: " + http.getHeaderFields().toString());
+                        throw new RuntimeException("Bad http status code: " + code);
                     default:
                         throw new RuntimeException("Unknown http status code: " + code);
                 }
@@ -103,20 +111,4 @@ public class EnaRefService {
         throw new GaveUpException(md5);
     }
 
-    public static class GaveUpException extends Exception {
-        private static final long serialVersionUID = -8997576068346912410L;
-        private String md5;
-
-        public GaveUpException(final String md5) {
-            this.setMd5(md5);
-        }
-
-        public String getMd5() {
-            return md5;
-        }
-
-        public void setMd5(final String md5) {
-            this.md5 = md5;
-        }
-    }
 }

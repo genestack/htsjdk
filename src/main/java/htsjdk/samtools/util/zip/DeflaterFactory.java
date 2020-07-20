@@ -40,9 +40,9 @@ public class DeflaterFactory {
      * Returns a deflater object that will be used when writing BAM files.
      * Subclasses may override to provide their own deflater implementation.
      * @param compressionLevel the compression level (0-9)
-     * @param nowrap if true then use GZIP compatible compression
+     * @param gzipCompatible if true then use GZIP compatible compression
      */
-    public Deflater makeDeflater(final int compressionLevel, final boolean nowrap) {
-        return new Deflater(compressionLevel, nowrap);
+    public Deflater makeDeflater(final int compressionLevel, final boolean gzipCompatible) {
+        return new Deflater(compressionLevel, gzipCompatible);
     }
 }

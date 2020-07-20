@@ -66,12 +66,12 @@ public abstract class AbstractAsyncWriter<T> implements Closeable {
      * Attempts to finish draining the queue and then calls synchronouslyClose() to allow implementation
      * to do any one time clean up.
      */
+    @Override
     public void close() {
         checkAndRethrow();
 
         if (!this.isClosed.getAndSet(true)) {
             try {
-                if (this.queue.isEmpty()) this.writer.interrupt(); // signal to writer clean up
             	this.writer.join();
             } catch (final InterruptedException ie) {
             	throw new RuntimeException("Interrupted waiting on writer thread.", ie);
@@ -110,6 +110,7 @@ public abstract class AbstractAsyncWriter<T> implements Closeable {
      * synchronous writer.
      */
     private class WriterRunnable implements Runnable {
+        @Override
         public void run() {
             try {
                 //The order of the two conditions is important, see https://github.com/samtools/htsjdk/issues/564
@@ -118,7 +119,7 @@ public abstract class AbstractAsyncWriter<T> implements Closeable {
                 //the two operations are effectively atomic if isClosed returns true
                 while (!isClosed.get() || !queue.isEmpty()) {
                     try {
-                        final T item = queue.poll(2, TimeUnit.SECONDS);
+                        final T item = queue.poll(50, TimeUnit.MILLISECONDS);
                         if (item != null) synchronouslyWrite(item);
                     }
                     catch (final InterruptedException ie) {

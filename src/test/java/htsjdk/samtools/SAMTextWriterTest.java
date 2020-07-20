@@ -23,6 +23,7 @@
  */
 package htsjdk.samtools;
 
+import htsjdk.HtsjdkTest;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -31,9 +32,9 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
-public class SAMTextWriterTest {
+public class SAMTextWriterTest extends HtsjdkTest {
 
-    private SAMRecordSetBuilder getSAMReader(final boolean sortForMe, final SAMFileHeader.SortOrder sortOrder) {
+    private SAMRecordSetBuilder getSamRecordSet(final boolean sortForMe, final SAMFileHeader.SortOrder sortOrder) {
         final SAMRecordSetBuilder ret = new SAMRecordSetBuilder(sortForMe, sortOrder);
         ret.addPair("readB", 20, 200, 300);
         ret.addPair("readA", 20, 100, 150);
@@ -44,7 +45,7 @@ public class SAMTextWriterTest {
 
     @Test
     public void testNullHeader() throws Exception {
-        final SAMRecordSetBuilder recordSetBuilder = getSAMReader(true, SAMFileHeader.SortOrder.coordinate);
+        final SAMRecordSetBuilder recordSetBuilder = getSamRecordSet(true, SAMFileHeader.SortOrder.coordinate);
         for (final SAMRecord rec : recordSetBuilder.getRecords()) {
             rec.setHeader(null);
         }
@@ -76,7 +77,7 @@ public class SAMTextWriterTest {
     }
 
     private void doTest(final SamFlagField samFlagField) throws Exception {
-        doTest(getSAMReader(true, SAMFileHeader.SortOrder.coordinate), samFlagField);
+        doTest(getSamRecordSet(true, SAMFileHeader.SortOrder.coordinate), samFlagField);
     }
 
     private void doTest(final SAMRecordSetBuilder recordSetBuilder, final SamFlagField samFlagField) throws Exception {
@@ -119,12 +120,17 @@ public class SAMTextWriterTest {
             inputSAMRecord.getMateReferenceIndex();
             newSAMRecord.getMateReferenceIndex();
 
-            // Force these to be equal
-            newSAMRecord.setIndexingBin(inputSAMRecord.getIndexingBin());
-
             Assert.assertEquals(newSAMRecord, inputSAMRecord);
         }
         Assert.assertFalse(newSAMIt.hasNext());
         inputSAM.close();
+    }
+
+    @Test
+    public void testEmptyArrayAttributeHasNoCommaWhenWrittenToSAM(){
+        final SAMFileHeader header = new SAMFileHeader();
+        final SAMRecord record = new SAMRecord(header);
+        record.setAttribute("xa", new int[0]);
+        Assert.assertTrue(record.getSAMString().endsWith("xa:B:i\n"));
     }
 }

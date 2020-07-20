@@ -28,7 +28,11 @@ import java.io.InputStreamReader;
 
 /**
  * A wrapper around an {@code InputStream} which performs it's own buffering, and keeps track of the position.
- * 
+ *
+ * TODO: This class implements Positional, which in turn extends LocationAware, which requires preservation of
+ * virtual file pointers on BGZF inputs. However, if the inputStream wrapped by this class is a BlockCompressedInputStream,
+ * it violates that contract by wrapping the stream and returning positional file offsets instead.
+ *
  * @author depristo
  */
 public final class PositionalBufferedStream extends InputStream implements Positional {
@@ -48,6 +52,7 @@ public final class PositionalBufferedStream extends InputStream implements Posit
         nextChar = nChars = 0;
     }
 
+    @Override
     public final long getPosition() {
         return position;
     }
@@ -129,6 +134,7 @@ public final class PositionalBufferedStream extends InputStream implements Posit
         return nChars;
     }
 
+    @Override
     public final long skip(final long nBytes) throws IOException {
         long remainingToSkip = nBytes;
 
@@ -156,11 +162,12 @@ public final class PositionalBufferedStream extends InputStream implements Posit
         return actuallySkipped;
     }
 
+    @Override
     public final void close() {
         try {
             is.close();
         } catch (IOException ex) {
-            new TribbleException("Failed to close PositionalBufferedStream", ex);
+            throw new TribbleException("Failed to close PositionalBufferedStream", ex);
         }
     }
 
@@ -170,7 +177,7 @@ public final class PositionalBufferedStream extends InputStream implements Posit
 
     public static void main(String[] args) throws Exception {
         final File testFile = new File(args[0]);
-        final int iterations = Integer.valueOf(args[1]);
+        final int iterations = Integer.parseInt(args[1]);
         final boolean includeInputStream = Boolean.valueOf(args[2]);
         final boolean doReadFileInChunks = Boolean.valueOf(args[3]);
 

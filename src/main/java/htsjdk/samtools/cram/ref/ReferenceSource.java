@@ -20,13 +20,14 @@ package htsjdk.samtools.cram.ref;
 import htsjdk.samtools.Defaults;
 import htsjdk.samtools.SAMException;
 import htsjdk.samtools.SAMSequenceRecord;
-import htsjdk.samtools.cram.build.Utils;
 import htsjdk.samtools.cram.io.InputStreamUtils;
 import htsjdk.samtools.reference.ReferenceSequence;
 import htsjdk.samtools.reference.ReferenceSequenceFile;
 import htsjdk.samtools.reference.ReferenceSequenceFileFactory;
+import htsjdk.samtools.util.IOUtil;
 import htsjdk.samtools.util.Log;
 import htsjdk.samtools.util.SequenceUtil;
+import htsjdk.samtools.util.StringUtil;
 
 import java.io.File;
 import java.io.IOException;
@@ -34,7 +35,6 @@ import java.io.InputStream;
 import java.lang.ref.WeakReference;
 import java.net.URL;
 import java.nio.file.Path;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -52,21 +52,17 @@ import java.util.regex.Pattern;
  */
 public class ReferenceSource implements CRAMReferenceSource {
     private static final Log log = Log.getInstance(ReferenceSource.class);
-    private ReferenceSequenceFile rsFile;
+    private final ReferenceSequenceFile rsFile;
     private int downloadTriesBeforeFailing = 2;
 
-    private final Map<String, WeakReference<byte[]>> cacheW = new HashMap<String, WeakReference<byte[]>>();
-
-    private ReferenceSource() {
-    }
+    private final Map<String, WeakReference<byte[]>> cacheW = new HashMap<>();
 
     public ReferenceSource(final File file) {
-        this(file == null ? null : file.toPath());
+        this(IOUtil.toPath(file));
     }
 
     public ReferenceSource(final Path path) {
-        if (path != null)
-            rsFile = ReferenceSequenceFileFactory.getReferenceSequenceFile(path);
+        this( path == null ? null : ReferenceSequenceFileFactory.getReferenceSequenceFile(path));
     }
 
     public ReferenceSource(final ReferenceSequenceFile rsFile) {
@@ -79,7 +75,6 @@ public class ReferenceSource implements CRAMReferenceSource {
      *
      * @return CRAMReferenceSource if one can be acquired. Guaranteed to not be null if none
      * of the listed exceptions is thrown.
-     * @throws IllegalStateException if no default reference source can be acquired
      * @throws IllegalArgumentException if the reference_fasta environment variable refers to a
      * a file that doesn't exist
      *<p>
@@ -94,6 +89,7 @@ public class ReferenceSource implements CRAMReferenceSource {
      public static CRAMReferenceSource getDefaultCRAMReferenceSource() {
         if (null != Defaults.REFERENCE_FASTA) {
             if (Defaults.REFERENCE_FASTA.exists()) {
+                log.info(String.format("Default reference file %s exists, so going to use that.", Defaults.REFERENCE_FASTA.getAbsolutePath()));
                 return new ReferenceSource(Defaults.REFERENCE_FASTA);
             }
             else {
@@ -102,16 +98,12 @@ public class ReferenceSource implements CRAMReferenceSource {
             }
         }
         else if (Defaults.USE_CRAM_REF_DOWNLOAD) {
-            return new ReferenceSource();
+            log.info("USE_CRAM_REF_DOWNLOAD=true, so attempting to download reference file as needed.");
+            return new ReferenceSource((ReferenceSequenceFile)null);
         }
         else {
-            throw new IllegalStateException(
-                    "A valid CRAM reference was not supplied and one cannot be acquired via the property settings reference_fasta or use_cram_ref_download");
+            return new CRAMLazyReferenceSource();
         }
-    }
-
-    public void clearCache() {
-        cacheW.clear();
     }
 
     private byte[] findInCache(final String name) {
@@ -124,15 +116,19 @@ public class ReferenceSource implements CRAMReferenceSource {
         return null;
     }
 
-    // Upper case and normalize (-> ACGTN) in-place, and add to the cache
+    // Upper case (in-place), and add to the cache
     private byte[] addToCache(final String sequenceName, final byte[] bases) {
+        // Normalize to upper case only. We can't use the cram normalization utility Utils.normalizeBases, since
+        // we don't want to normalize ambiguity codes, we can't use SamUtils.normalizeBases, since we don't want
+        // to normalize no-call ('.') bases.
         for (int i = 0; i < bases.length; i++) {
-            bases[i] = Utils.normalizeBase(bases[i]);
+            bases[i] = StringUtil.toUpperCase(bases[i]);
         }
-        cacheW.put(sequenceName, new WeakReference<byte[]>(bases));
+        cacheW.put(sequenceName, new WeakReference<>(bases));
         return bases;
     }
 
+    @Override
     public synchronized byte[] getReferenceBases(final SAMSequenceRecord record,
                                                  final boolean tryNameVariants) {
         { // check cache by sequence name:
@@ -170,11 +166,7 @@ public class ReferenceSource implements CRAMReferenceSource {
         {
             if (Defaults.USE_CRAM_REF_DOWNLOAD) { // try to fetch sequence by md5:
                 if (md5 != null) {
-                    try {
-                        bases = findBasesByMD5(md5.toLowerCase());
-                    } catch (final Exception e) {
-                        throw new RuntimeException(e);
-                    }
+                    bases = findBasesByMD5(md5.toLowerCase());
                 }
                 if (bases != null) {
                     return addToCache(md5, bases);
@@ -186,7 +178,7 @@ public class ReferenceSource implements CRAMReferenceSource {
         return null;
     }
 
-    byte[] findBasesByName(final String name, final boolean tryVariants) {
+    private byte[] findBasesByName(final String name, final boolean tryVariants) {
         if (rsFile == null || !rsFile.isIndexed())
             return null;
 
@@ -213,21 +205,18 @@ public class ReferenceSource implements CRAMReferenceSource {
         return null;
     }
 
-    byte[] findBasesByMD5(final String md5) throws
-            IOException {
+    private byte[] findBasesByMD5(final String md5) {
         final String url = String.format(Defaults.EBI_REFERENCE_SERVICE_URL_MASK, md5);
 
         for (int i = 0; i < downloadTriesBeforeFailing; i++) {
-            final InputStream is = new URL(url).openStream();
-            if (is == null)
-                return null;
+            try (final InputStream is = new URL(url).openStream()) {
+                if (is == null)
+                    return null;
 
-            log.debug("Downloading reference sequence: " + url);
-            final byte[] data = InputStreamUtils.readFully(is);
-            log.debug("Downloaded " + data.length + " bytes for md5 " + md5);
-            is.close();
+                log.info("Downloading reference sequence: " + url);
+                final byte[] data = InputStreamUtils.readFully(is);
+                log.info("Downloaded " + data.length + " bytes for md5 " + md5);
 
-            try {
                 final String downloadedMD5 = SequenceUtil.calculateMD5String(data);
                 if (md5.equals(downloadedMD5)) {
                     return data;
@@ -237,19 +226,20 @@ public class ReferenceSource implements CRAMReferenceSource {
                                     md5, downloadedMD5);
                     log.error(message);
                 }
-            } catch (final NoSuchAlgorithmException e) {
+            }
+            catch (final IOException e) {
                 throw new RuntimeException(e);
             }
         }
-        throw new RuntimeException("Giving up on downloading sequence for md5 "
+        throw new GaveUpException("Giving up on downloading sequence for md5 "
                 + md5);
     }
 
     private static final Pattern chrPattern = Pattern.compile("chr.*",
             Pattern.CASE_INSENSITIVE);
 
-    List<String> getVariants(final String name) {
-        final List<String> variants = new ArrayList<String>();
+    private List<String> getVariants(final String name) {
+        final List<String> variants = new ArrayList<>();
 
         if (name.equals("M"))
             variants.add("MT");

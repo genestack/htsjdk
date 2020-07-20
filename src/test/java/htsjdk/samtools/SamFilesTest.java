@@ -1,6 +1,9 @@
 package htsjdk.samtools;
 
 import java.nio.file.Path;
+
+import htsjdk.HtsjdkTest;
+import htsjdk.samtools.util.IOUtil;
 import org.testng.Assert;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
@@ -12,7 +15,7 @@ import java.io.IOException;
  * Test valid combinations of bam/cram vs bai/crai files.
  * Created by vadim on 10/08/2015.
  */
-public class SamFilesTest {
+public class SamFilesTest extends HtsjdkTest {
     private static final String TEST_DATA = "src/test/resources/htsjdk/samtools/BAMFileIndexTest/";
     private static final File BAM_FILE = new File(TEST_DATA + "index_test.bam");
 
@@ -86,6 +89,6 @@ public class SamFilesTest {
     @Test(dataProvider ="filesAndIndicies")
     public void testIndexSymlinking(File bam, File expected_index) {
         Assert.assertEquals(SamFiles.findIndex(bam), expected_index);
-        Assert.assertEquals(SamFiles.findIndex(bam.toPath()), expected_index == null ? null : expected_index.toPath());
+        Assert.assertEquals(SamFiles.findIndex(bam.toPath()), IOUtil.toPath(expected_index));
     }
 }

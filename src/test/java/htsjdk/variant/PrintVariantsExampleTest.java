@@ -25,23 +25,24 @@
 
 package htsjdk.variant;
 
+import htsjdk.HtsjdkTest;
+import htsjdk.samtools.util.FileExtensions;
 import htsjdk.samtools.util.IOUtil;
 import htsjdk.variant.example.PrintVariantsExample;
+import htsjdk.variant.vcf.VCFUtils;
 import org.testng.Assert;
-import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.List;
-import java.util.OptionalInt;
 import java.util.stream.IntStream;
 
-public class PrintVariantsExampleTest {
+public class PrintVariantsExampleTest extends HtsjdkTest {
     @Test
     public void testExampleWriteFile() throws IOException {
-        final File tempFile = File.createTempFile("example", ".vcf");
+        final File tempFile = File.createTempFile("example", FileExtensions.VCF);
         tempFile.deleteOnExit();
         File f1 = new File("src/test/resources/htsjdk/variant/ILLUMINA.wex.broad_phase2_baseline.20111114.both.exome.genotypes.1000.vcf");
         final String[] args = {

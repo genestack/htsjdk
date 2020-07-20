@@ -27,10 +27,11 @@ import htsjdk.samtools.SAMException;
 
 import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.math.BigInteger;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
@@ -43,14 +44,14 @@ public class Md5CalculatingOutputStream extends OutputStream {
 
     private final OutputStream os;
     private final MessageDigest md5;
-    private final File digestFile;
+    private final Path digestFile;
     private String hash;
 
     /**
      * Constructor that takes in the OutputStream that we are wrapping
      * and creates the MD5 MessageDigest
      */
-    public Md5CalculatingOutputStream(OutputStream os, File digestFile) {
+    public Md5CalculatingOutputStream(OutputStream os, Path digestFile) {
         super();
         this.hash = null;
         this.os = os;
@@ -65,17 +66,24 @@ public class Md5CalculatingOutputStream extends OutputStream {
         }
     }
 
+    public Md5CalculatingOutputStream(OutputStream os, File digestFile) {
+        this(os, IOUtil.toPath(digestFile));
+    }
+
+    @Override
     public void write(int b) throws IOException {
         md5.update((byte)b);
         os.write(b);
     }
 
+    @Override
     public void write(byte[] b) throws IOException {
         md5.update(b);
         os.write(b);
     }
 
 
+    @Override
     public void write(byte[] b, int off, int len) throws IOException {
         md5.update(b, off, len);
         os.write(b, off, len);
@@ -102,18 +110,20 @@ public class Md5CalculatingOutputStream extends OutputStream {
         }
     }
 
+    @Override
     public void close() throws IOException {
         os.close();
         makeHash();
 
         if(digestFile != null) {
-            BufferedWriter writer = new BufferedWriter(new FileWriter(digestFile));
+            BufferedWriter writer = Files.newBufferedWriter(digestFile);
             writer.write(hash);
             writer.close();
         }
     }
 
     // Pass-through method
+    @Override
     public void flush() throws IOException { os.flush(); }
 
 }

@@ -23,6 +23,7 @@
  */
 package htsjdk.samtools;
 
+import htsjdk.HtsjdkTest;
 import htsjdk.samtools.util.CloserUtil;
 import htsjdk.samtools.util.TestUtil;
 import org.testng.annotations.Test;
@@ -40,7 +41,7 @@ import static org.testng.Assert.*;
 /**
  * Test BAM file indexing.
  */
-public class BAMRemoteFileTest {
+public class BAMRemoteFileTest extends HtsjdkTest {
     private final File BAM_INDEX_FILE = new File("src/test/resources/htsjdk/samtools/BAMFileIndexTest/index_test.bam.bai");
     private final File BAM_FILE = new File("src/test/resources/htsjdk/samtools/BAMFileIndexTest/index_test.bam");
     private final String BAM_URL_STRING = TestUtil.BASE_URL_FOR_HTTP_TESTS + "index_test.bam";
@@ -54,22 +55,19 @@ public class BAMRemoteFileTest {
 
 
     @Test
-    void testRemoteLocal()
-            throws Exception {
+    public void testRemoteLocal() throws Exception {
         runLocalRemoteTest(bamURL, BAM_FILE, "chrM", 10400, 10600, false);
     }
 
     @Test
-    public void testSpecificQueries()
-            throws Exception {
+    public void testSpecificQueries() throws Exception {
         assertEquals(runQueryTest(bamURL, "chrM", 10400, 10600, true), 1);
         assertEquals(runQueryTest(bamURL, "chrM", 10400, 10600, false), 2);
     }
 
-    @Test(enabled = true)
-    public void testRandomQueries()
-            throws Exception {
-        runRandomTest(bamURL, 20, new Random());
+    @Test
+    public void testRandomQueries() throws Exception {
+        runRandomTest(bamURL, 20, new Random(TestUtil.RANDOM_SEED));
     }
 
     @Test
@@ -134,7 +132,6 @@ public class BAMRemoteFileTest {
 
     private List<String> getReferenceNames(final URL bamFile) throws IOException {
 
-
         final SamReader reader = SamReaderFactory.makeDefault().open(SamInputResource.of(bamFile.openStream()));
 
         final List<String> result = new ArrayList<String>();
@@ -175,8 +172,6 @@ public class BAMRemoteFileTest {
             //System.out.println(records1.get(i).format());
             assertEquals(records1.get(i).getSAMString(), records2.get(i).getSAMString());
         }
-
-
     }
 
     private int runQueryTest(final URL bamURL, final String sequence, final int startPos, final int endPos, final boolean contained) {
@@ -206,9 +201,6 @@ public class BAMRemoteFileTest {
                 record2 = iter2.next();
                 count2++;
             }
-            // System.out.println("Iteration:");
-            // System.out.println(" Record1 = " + ((record1 == null) ? "null" : record1.format()));
-            // System.out.println(" Record2 = " + ((record2 == null) ? "null" : record2.format()));
             if (record1 == null && record2 == null) {
                 break;
             }

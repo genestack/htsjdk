@@ -18,11 +18,12 @@
 package htsjdk.samtools.cram.encoding.readfeatures;
 
 import java.io.Serializable;
+import java.util.Objects;
 
 /**
  * A read feature representing a single quality score in a read.
  */
-public class BaseQualityScore implements Serializable, ReadFeature {
+public final class BaseQualityScore implements Serializable, ReadFeature {
 
     private int position;
     private byte qualityScore;
@@ -44,27 +45,8 @@ public class BaseQualityScore implements Serializable, ReadFeature {
         return position;
     }
 
-    public void setPosition(final int position) {
-        this.position = position;
-    }
-
     public byte getQualityScore() {
         return qualityScore;
-    }
-
-    public void setQualityScore(final byte qualityScore) {
-        this.qualityScore = qualityScore;
-    }
-
-    @Override
-    public boolean equals(final Object obj) {
-        if (!(obj instanceof BaseQualityScore))
-            return false;
-
-        final BaseQualityScore v = (BaseQualityScore) obj;
-
-        return position == v.position && qualityScore == v.qualityScore;
-
     }
 
     @Override
@@ -73,4 +55,17 @@ public class BaseQualityScore implements Serializable, ReadFeature {
                 .append(position).append('#').appendCodePoint(qualityScore).toString();
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        BaseQualityScore that = (BaseQualityScore) o;
+        return position == that.position &&
+                qualityScore == that.qualityScore;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(position, qualityScore);
+    }
 }

@@ -24,39 +24,42 @@
 
 package htsjdk.samtools.util;
 
+import htsjdk.HtsjdkTest;
 import htsjdk.samtools.SAMFileHeader;
 import htsjdk.samtools.SAMSequenceRecord;
 import htsjdk.variant.vcf.VCFFileReader;
 import org.testng.Assert;
-import org.testng.annotations.BeforeTest;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.SortedSet;
-import java.util.TreeSet;
 
 /**
  * Tests the IntervalList class
  */
-public class IntervalListTest {
+public class IntervalListTest extends HtsjdkTest {
 
     final SAMFileHeader fileHeader;
-    final IntervalList list1, list2, list3;
+    final IntervalList list1, list2, list3, empty;
+    static final public Path TEST_DIR = new File("src/test/resources/htsjdk/samtools/intervallist").toPath();
 
     public IntervalListTest() {
-        fileHeader = IntervalList.fromFile(new File("src/test/resources/htsjdk/samtools/intervallist/IntervalListchr123_empty.interval_list")).getHeader();
+        fileHeader = IntervalList.fromPath(TEST_DIR.resolve("IntervalListchr123_empty.interval_list")).getHeader();
         fileHeader.setSortOrder(SAMFileHeader.SortOrder.unsorted);
 
         list1 = new IntervalList(fileHeader);
         list2 = new IntervalList(fileHeader);
         list3 = new IntervalList(fileHeader);
+        empty = new IntervalList(fileHeader);
+
 
         list1.add(new Interval("1", 1, 100));     //de-facto: 1:1-200 1:202-300     2:100-150 2:200-300
         list1.add(new Interval("1", 101, 200));
@@ -73,6 +76,16 @@ public class IntervalListTest {
         list3.add(new Interval("1", 25, 400));    //de-facto 1:25-400                2:200-600                            3:50-470
         list3.add(new Interval("2", 200, 600));
         list3.add(new Interval("3", 50, 470));
+    }
+
+
+    @Test
+    public void testIntervalListFrom() throws IOException {
+        final String testPath = TEST_DIR.resolve("IntervalListFromVCFTestComp.interval_list").toString();
+        final IntervalList fromFileList = IntervalList.fromFile(new File(testPath));
+        final IntervalList fromPathList = IntervalList.fromPath(IOUtil.getPath(testPath));
+        fromFileList.getHeader().getSequenceDictionary().assertSameDictionary(fromPathList.getHeader().getSequenceDictionary());
+        Assert.assertEquals(CollectionUtil.makeCollection(fromFileList.iterator()), CollectionUtil.makeCollection(fromPathList.iterator()));
     }
 
     @DataProvider(name = "intersectData")
@@ -215,22 +228,35 @@ public class IntervalListTest {
         union13.add(new Interval("2", 200, 600));
         union13.add(new Interval("3", 50, 470));
 
+
         return new Object[][]{
                 new Object[]{Arrays.asList(list1, list2, list3), union123},
                 new Object[]{Arrays.asList(list1, list2), union12},
-                new Object[]{Arrays.asList(list1, list2), union12},
-                new Object[]{Arrays.asList(list2, list3), union23},
                 new Object[]{Arrays.asList(list2, list3), union23},
                 new Object[]{Arrays.asList(list1, list3), union13},
-                new Object[]{Arrays.asList(list1, list3), union13}
         };
     }
 
-    @Test(dataProvider = "unionData", enabled = true)
+    @Test(dataProvider = "unionData")
     public void testUnionIntervalLists(final List<IntervalList> lists, final IntervalList list) {
         Assert.assertEquals(
                 CollectionUtil.makeCollection(IntervalList.union(lists).iterator()),
                 CollectionUtil.makeCollection(list.iterator()));
+    }
+
+
+    @Test
+    public void testUnionSamePosition() {
+        final IntervalList iList= new IntervalList(fileHeader);
+
+        final List<Interval> intervals = Arrays.asList(
+                new Interval("1", 2, 100, true, "test1"),
+                new Interval("1", 2, 100, true, "test2")
+        );
+        iList.addall(intervals);
+        final List<Interval> uniqued = iList.uniqued().getIntervals();
+        Assert.assertEquals(uniqued.size(),1);
+        Assert.assertEquals(uniqued.get(0).getName(),"test1|test2");
     }
 
     @DataProvider(name = "invertData")
@@ -364,30 +390,101 @@ public class IntervalListTest {
     }
 
     @Test(dataProvider = "subtractSingletonData")
-    public void testSubtractSingletonasListIntervalList(final IntervalList fromLists, final IntervalList whatLists, final IntervalList list) {
+    public void testSubtractSingletonAsListIntervalList(final IntervalList fromLists, final IntervalList whatLists, final IntervalList list) {
         Assert.assertEquals(
                 CollectionUtil.makeCollection(IntervalList.subtract(Collections.singletonList(fromLists), Collections.singletonList(whatLists)).iterator()),
                 CollectionUtil.makeCollection(list.iterator()));
     }
 
+    @DataProvider(name = "overlapsSingletonData")
+    public Object[][] overlapSingletonData() {
+        final IntervalList two_overlaps_one   = new IntervalList(fileHeader);
+        final IntervalList three_overlaps_two = new IntervalList(fileHeader);
+        final IntervalList three_overlaps_one = new IntervalList(fileHeader);
+        final IntervalList one_overlaps_three = new IntervalList(fileHeader);
+
+        // NB: commented lines below are there to show the intervals in the first list that will not be in the resulting list
+
+        two_overlaps_one.add(new Interval("1", 50, 150));
+        //two_overlaps_one.add(new Interval("1", 301, 500));
+        two_overlaps_one.add(new Interval("2", 1, 150));
+        two_overlaps_one.add(new Interval("2", 250, 270));
+        two_overlaps_one.add(new Interval("2", 290, 400));
+
+        three_overlaps_two.add(new Interval("1", 25, 400));
+        three_overlaps_two.add(new Interval("2", 200, 600));
+
+        three_overlaps_one.add(new Interval("1", 25, 400));
+        three_overlaps_one.add(new Interval("2", 200, 600));
+
+        one_overlaps_three.add(new Interval("1", 1, 100));
+        one_overlaps_three.add(new Interval("1", 101, 200));
+        one_overlaps_three.add(new Interval("1", 202, 300));
+        one_overlaps_three.add(new Interval("2", 200, 300));
+
+        return new Object[][]{
+                new Object[]{list1, list1, list1}, // should return itself
+                new Object[]{list1, IntervalList.invert(list1), new IntervalList(list1.getHeader())}, // should be empty
+                new Object[]{list2, list1, two_overlaps_one},
+                new Object[]{list3, list2, three_overlaps_two},
+                new Object[]{list3, list1, three_overlaps_one},
+                new Object[]{list1, list3, one_overlaps_three},
+                new Object[]{empty, list1, empty},
+                new Object[]{list1, empty, empty},
+        };
+    }
+
+    @DataProvider(name = "overlapsData")
+    public Object[][] overlapData() {
+        final IntervalList three_overlaps_one_and_two = new IntervalList(fileHeader);
+
+        three_overlaps_one_and_two.add(new Interval("1", 25, 400));
+        three_overlaps_one_and_two.add(new Interval("2", 200, 600));
+
+        return new Object[][]{
+                new Object[]{CollectionUtil.makeList(list3), CollectionUtil.makeList(list1, list2), three_overlaps_one_and_two},
+        };
+    }
+
+    @Test(dataProvider = "overlapsData")
+    public void testOverlapsIntervalLists(final List<IntervalList> fromLists, final List<IntervalList> whatLists, final IntervalList list) {
+        Assert.assertEquals(
+                CollectionUtil.makeCollection(IntervalList.overlaps(fromLists, whatLists).iterator()),
+                CollectionUtil.makeCollection(list.iterator()));
+    }
+
+    @Test(dataProvider = "overlapsSingletonData")
+    public void testOverlapsSingletonIntervalLists(final IntervalList fromLists, final IntervalList whatLists, final IntervalList list) {
+        Assert.assertEquals(
+                CollectionUtil.makeCollection(IntervalList.overlaps(fromLists, whatLists).iterator()),
+                CollectionUtil.makeCollection(list.iterator()));
+    }
+
+    @Test(dataProvider = "overlapsSingletonData")
+    public void testOverlapsSingletonAsListIntervalList(final IntervalList fromLists, final IntervalList whatLists, final IntervalList list) {
+        Assert.assertEquals(
+                CollectionUtil.makeCollection(IntervalList.overlaps(Collections.singletonList(fromLists), Collections.singletonList(whatLists)).iterator()),
+                CollectionUtil.makeCollection(list.iterator()));
+    }
+
     @DataProvider(name = "VCFCompData")
     public Object[][] VCFCompData() {
+        final Path intervalListFromVcf = TEST_DIR.resolve("IntervalListFromVCFTest.vcf");
+        final Path intervalListFromVcfManual = TEST_DIR.resolve("IntervalListFromVCFTestManual.vcf");
+
         return new Object[][]{
-                new Object[]{"src/test/resources/htsjdk/samtools/intervallist/IntervalListFromVCFTest.vcf", "src/test/resources/htsjdk/samtools/intervallist/IntervalListFromVCFTestComp.interval_list", false},
-                new Object[]{"src/test/resources/htsjdk/samtools/intervallist/IntervalListFromVCFTest.vcf", "src/test/resources/htsjdk/samtools/intervallist/IntervalListFromVCFTestCompInverse.interval_list", true},
-                new Object[]{"src/test/resources/htsjdk/samtools/intervallist/IntervalListFromVCFTestManual.vcf", "src/test/resources/htsjdk/samtools/intervallist/IntervalListFromVCFTestManualComp.interval_list", false},
-                new Object[]{"src/test/resources/htsjdk/samtools/intervallist/IntervalListFromVCFTestManual.vcf", "src/test/resources/htsjdk/samtools/intervallist/IntervalListFromVCFTestCompInverseManual.interval_list", true}
+                new Object[]{intervalListFromVcf, TEST_DIR.resolve("IntervalListFromVCFTestComp.interval_list"), false},
+                new Object[]{intervalListFromVcf, TEST_DIR.resolve("IntervalListFromVCFTestCompInverse.interval_list"), true},
+                new Object[]{intervalListFromVcfManual, TEST_DIR.resolve("IntervalListFromVCFTestManualComp.interval_list"), false},
+                new Object[]{intervalListFromVcfManual, TEST_DIR.resolve("IntervalListFromVCFTestCompInverseManual.interval_list"), true}
         };
     }
 
     @Test(dataProvider = "VCFCompData")
-    public void testFromVCF(final String vcf, final String compInterval, final boolean invertVCF) {
+    public void testFromVCF(final Path vcf, final Path compInterval, final boolean invertVCF) {
 
-        final File vcfFile = new File(vcf);
-        final File compIntervalFile = new File(compInterval);
-
-        final IntervalList compList = IntervalList.fromFile(compIntervalFile);
-        final IntervalList list = invertVCF ? IntervalList.invert(VCFFileReader.fromVcf(vcfFile)) : VCFFileReader.fromVcf(vcfFile);
+        final IntervalList compList = IntervalList.fromPath(compInterval);
+        final IntervalList list = invertVCF ? IntervalList.invert(VCFFileReader.toIntervalList(vcf)) : VCFFileReader.toIntervalList(vcf);
 
         compList.getHeader().getSequenceDictionary().assertSameDictionary(list.getHeader().getSequenceDictionary());
 
@@ -397,8 +494,8 @@ public class IntervalListTest {
         //assert that the intervals correspond
         Assert.assertEquals(intervals, compIntervals);
 
-        final List<String> intervalNames = new LinkedList<String>();
-        final List<String> compIntervalNames = new LinkedList<String>();
+        final List<String> intervalNames = new LinkedList<>();
+        final List<String> compIntervalNames = new LinkedList<>();
 
         for (final Interval interval : intervals) {
             intervalNames.add(interval.getName());
@@ -410,39 +507,95 @@ public class IntervalListTest {
         Assert.assertEquals(intervalNames, compIntervalNames);
     }
 
+
+    @Test(dataProvider = "VCFCompData")
+    public void testFromVCFWithPath(final Path vcf, final Path compInterval, final boolean invertVCF) {
+
+
+        final IntervalList compList = IntervalList.fromPath(compInterval);
+        final IntervalList list = invertVCF ? IntervalList.invert(VCFFileReader.toIntervalList(vcf)) : VCFFileReader.toIntervalList(vcf);
+
+        compList.getHeader().getSequenceDictionary().assertSameDictionary(list.getHeader().getSequenceDictionary());
+
+        final Collection<Interval> intervals = CollectionUtil.makeCollection(list.iterator());
+        final Collection<Interval> compIntervals = CollectionUtil.makeCollection(compList.iterator());
+
+        //assert that the intervals correspond
+        Assert.assertEquals(intervals, compIntervals);
+
+        final List<String> intervalNames = new LinkedList<>();
+        final List<String> compIntervalNames = new LinkedList<>();
+
+        for (final Interval interval : intervals) {
+            intervalNames.add(interval.getName());
+        }
+        for (final Interval interval : compIntervals) {
+            compIntervalNames.add(interval.getName());
+        }
+        //assert that the names match
+        Assert.assertEquals(intervalNames, compIntervalNames);
+    }
+
+
     @DataProvider
     public Object[][] testFromSequenceData() {
+        final Path intervalList = TEST_DIR.resolve("IntervalListFromVCFTestComp.interval_list");
         return new Object[][]{
-                new Object[]{"src/test/resources/htsjdk/samtools/intervallist/IntervalListFromVCFTestComp.interval_list", "1", 249250621},
-                new Object[]{"src/test/resources/htsjdk/samtools/intervallist/IntervalListFromVCFTestComp.interval_list", "2", 243199373},
-                new Object[]{"src/test/resources/htsjdk/samtools/intervallist/IntervalListFromVCFTestComp.interval_list", "3", 198022430},
+                new Object[]{intervalList, "1", 249250621},
+                new Object[]{intervalList, "2", 243199373},
+                new Object[]{intervalList, "3", 198022430},
         };
     }
 
     @Test(dataProvider = "testFromSequenceData")
-    public void testFromSequenceName(final String intervalList, final String referenceName, final Integer length) {
+    public void testFromSequenceName(final Path intervalList, final String referenceName, final Integer length) {
 
-        final IntervalList intervals = IntervalList.fromFile(new File(intervalList));
+        final IntervalList intervals = IntervalList.fromPath(intervalList);
         final IntervalList test = IntervalList.fromName(intervals.getHeader(), referenceName);
         Assert.assertEquals(test.getIntervals(), CollectionUtil.makeList(new Interval(referenceName, 1, length)));
     }
 
-    @Test
-    public void testMerges() {
-        final SortedSet<Interval> intervals = new TreeSet<Interval>() {{
-            add(new Interval("1", 500, 600, false, "foo"));
-            add(new Interval("1", 550, 650, false, "bar"));
-            add(new Interval("1", 625, 699, false, "splat"));
-        }};
+    @DataProvider
+    public Object[][] getMergeTestCases() {
+        final String contig = "1";
+        final Interval foo = new Interval(contig, 500, 600, false, "foo");
+        final Interval bar = new Interval(contig, 550, 650, false, "bar");
+        final Interval splat = new Interval(contig, 625, 699, false, "splat");
+        final List<Interval> threeInOrderIntervals = Arrays.asList(foo, bar, splat);
+        final List<Interval> threeOutOfOrderIntervals = Arrays.asList(bar, foo, splat);
+        final Interval zeroLengthInterval = new Interval(contig, 626, 625);
+        final Interval interval600To601 = new Interval(contig, 600, 601);
+        final Interval interval600To625 = new Interval(contig, 600, 625);
+        final Interval normalInterval = new Interval(contig, 626, 629, true, "whee");
+        final Interval zeroInterval10To9 = new Interval(contig, 10, 9);
+        return new Object[][]{
+                {threeInOrderIntervals, true, new Interval(contig, 500, 699, false, "foo|bar|splat")},
+                {threeInOrderIntervals, false, new Interval(contig, 500, 699, false, "foo")},
+                {threeOutOfOrderIntervals, true, new Interval(contig, 500, 699, false, "bar|foo|splat")},
+                {threeOutOfOrderIntervals, false, new Interval(contig, 500, 699, false, "bar")},
+                {Collections.singletonList(normalInterval), true, normalInterval},
+                {Collections.singletonList(normalInterval), false, normalInterval},
+                {Collections.singletonList(zeroLengthInterval), true, zeroLengthInterval},
+                {Collections.singletonList(zeroLengthInterval), false, zeroLengthInterval},
+                {Arrays.asList(zeroLengthInterval, interval600To601), true, interval600To625},
+                {Arrays.asList(zeroLengthInterval, interval600To601), false, interval600To625},
+                {Arrays.asList(zeroLengthInterval, interval600To601), true, interval600To625},
+                {Arrays.asList(interval600To601, new Interval(contig, 100, 200, false, "hasName")), true, new Interval(contig, 100, 601, false, "hasName")},
+                {Arrays.asList(interval600To601, new Interval(contig, 100, 200, false, "hasName")), false, new Interval(contig, 100, 601, false, "hasName")},
+                {Arrays.asList(zeroInterval10To9, new Interval(contig, 11, 15)), false, new Interval(contig, 10, 15)},
+                {Arrays.asList(zeroInterval10To9, new Interval(contig, 10, 15)), true, new Interval(contig, 10, 15)},
+                {Arrays.asList(zeroInterval10To9, new Interval(contig, 9,15)), false, new Interval(contig, 9, 15)},
+                {Arrays.asList(zeroInterval10To9, new Interval(contig, 8, 9)), true, new Interval(contig, 8, 9)}
+        };
+    }
 
-        Interval out = IntervalList.merge(intervals, false);
-        Assert.assertEquals(out.getStart(), 500);
-        Assert.assertEquals(out.getEnd(), 699);
-
-        intervals.add(new Interval("1", 626, 629, false, "whee"));
-        out = IntervalList.merge(intervals, false);
-        Assert.assertEquals(out.getStart(), 500);
-        Assert.assertEquals(out.getEnd(), 699);
+    @Test(dataProvider = "getMergeTestCases")
+    public void testMerges(Iterable<Interval> intervals, boolean concatNames, Interval expected) {
+        final Interval merged = IntervalList.merge(intervals, concatNames);
+        Assert.assertEquals(merged.getContig(), expected.getContig());
+        Assert.assertEquals(merged.getStart(), expected.getStart());
+        Assert.assertEquals(merged.getStrand(), expected.getStrand());
+        Assert.assertEquals(merged.getName(), expected.getName());
     }
 
     @Test
@@ -495,15 +648,15 @@ public class IntervalListTest {
 
     @Test(expectedExceptions = IllegalArgumentException.class)
     public void changeHeader() {
-        SAMFileHeader clonedHeader = fileHeader.clone();
+        final SAMFileHeader clonedHeader = fileHeader.clone();
         clonedHeader.addSequence(new SAMSequenceRecord("4", 1000));
-        IntervalList usingClone1 = new IntervalList(clonedHeader);
+        final IntervalList usingClone1 = new IntervalList(clonedHeader);
         usingClone1.add(new Interval("4", 1, 100));
-        IntervalList usingClone2 = new IntervalList(clonedHeader);
+        final IntervalList usingClone2 = new IntervalList(clonedHeader);
         usingClone2.add(new Interval("4", 10, 20));
 
 
-        IntervalList expected = new IntervalList(clonedHeader);
+        final IntervalList expected = new IntervalList(clonedHeader);
         expected.add(new Interval("4", 1, 9));
         expected.add(new Interval("4", 21, 100));
 
@@ -512,9 +665,41 @@ public class IntervalListTest {
 
         //now interval lists are in "illegal state" since they contain contigs that are not in the header.
         //this next step should fail
-        IntervalList.subtract(usingClone1, usingClone2);
+        IntervalList.union(usingClone1, usingClone2);
+    }
 
-        Assert.assertTrue(false);
+    @Test public void uniqueIntervalsWithoutNames() {
+        final IntervalList test = new IntervalList(this.fileHeader);
+        test.add(new Interval("1", 100, 200));
+        test.add(new Interval("1", 500, 600));
+        test.add(new Interval("1", 550, 700));
 
+        for (final boolean concat : new boolean[]{true, false}) {
+            final IntervalList unique = test.uniqued(concat);
+            Assert.assertEquals(unique.size(), 2);
+        }
+    }
+
+    @Test(expectedExceptions = IllegalArgumentException.class)
+    public void testContigsAbsentInHeader() {
+        String vcf = TEST_DIR.resolve("IntervalListFromVCFNoContigLines.vcf").toString();
+        final File vcfFile = new File(vcf);
+        VCFFileReader.toIntervalList(vcfFile.toPath());
+    }
+
+
+    @DataProvider
+    public static Object[][] brokenFiles() {
+        return new Object[][]{
+                {TEST_DIR.resolve("broken.end.extends.too.far.interval_list")},
+                {TEST_DIR.resolve("broken.start.bigger.than.end.interval_list")},
+                {TEST_DIR.resolve("broken.unallowed.strand.interval_list")},
+                {TEST_DIR.resolve("broken.zero.start.interval_list")},
+        };
+    }
+
+    @Test(dataProvider = "brokenFiles", expectedExceptions = IllegalArgumentException.class)
+    public void testBreaks(final Path brokenIntervalFile){
+        IntervalList.fromPath(brokenIntervalFile);
     }
 }

@@ -24,13 +24,14 @@
 
 package htsjdk.samtools.seekablestream;
 
+import htsjdk.HtsjdkTest;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
 import java.io.EOFException;
 import java.io.IOException;
 
-public class SeekableMemoryStreamTest {
+public class SeekableMemoryStreamTest extends HtsjdkTest {
 
     @Test
     public void test_getSource() {
@@ -84,10 +85,15 @@ public class SeekableMemoryStreamTest {
         Assert.assertEquals(copy, data);
     }
 
-    @Test(expectedExceptions = IOException.class)
+    @Test
     public void test_reset() throws IOException {
         SeekableMemoryStream stream = new SeekableMemoryStream("qwe".getBytes(), null);
         stream.mark(3);
+        // read fully
+        final int l = (int) stream.length();
+        Assert.assertEquals(stream.read(new byte[l]), l);
+        Assert.assertEquals(stream.read(), -1);
         stream.reset();
+        Assert.assertEquals(stream.read(new byte[l]), l);
     }
 }

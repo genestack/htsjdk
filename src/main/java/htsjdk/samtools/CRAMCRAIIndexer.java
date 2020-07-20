@@ -3,7 +3,7 @@ package htsjdk.samtools;
 import htsjdk.samtools.cram.CRAIEntry;
 import htsjdk.samtools.cram.CRAIIndex;
 import htsjdk.samtools.cram.build.CramIO;
-import htsjdk.samtools.cram.common.Version;
+import htsjdk.samtools.cram.common.CRAMVersion;
 import htsjdk.samtools.cram.structure.*;
 import htsjdk.samtools.seekablestream.SeekableStream;
 import htsjdk.samtools.util.RuntimeIOException;
@@ -12,6 +12,7 @@ import java.io.BufferedOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Scanner;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -25,19 +26,20 @@ import java.util.zip.GZIPOutputStream;
  * <li>read an existing index from an input stream</li>
  * </ul><p>
  */
-public class CRAMCRAIIndexer {
+public class CRAMCRAIIndexer implements CRAMIndexer {
 
     final private CRAIIndex craiIndex = new CRAIIndex();
     final private GZIPOutputStream os;
 
     /**
      * Create a CRAMCRAIIndexer that writes to the given output stream.
+     *
      * @param os output stream to which the index will be written
      * @param samHeader SAMFileHeader - user to verify sort order
      */
-    public CRAMCRAIIndexer(OutputStream os, SAMFileHeader samHeader) {
+    public CRAMCRAIIndexer(final OutputStream os, final SAMFileHeader samHeader) {
         if (samHeader.getSortOrder() != SAMFileHeader.SortOrder.coordinate) {
-            throw new SAMException("CRAM file be coordinate-sorted for indexing.");
+            throw new SAMException("CRAM file must be coordinate-sorted for indexing.");
         }
         try {
             this.os = new GZIPOutputStream(new BufferedOutputStream(os));
@@ -48,6 +50,21 @@ public class CRAMCRAIIndexer {
     }
 
     /**
+     * Create a CRAMCRAIIndexer that writes to the given output stream,
+     * initialized with a Collection of {@link CRAIEntry} objects.
+     *
+     * @param os output stream to which the index will be written
+     * @param samHeader SAMFileHeader - user to verify sort order
+     * @param entries the CRAI entries to index
+     */
+    public CRAMCRAIIndexer(final OutputStream os,
+                           final SAMFileHeader samHeader,
+                           final Collection<CRAIEntry> entries) {
+        this(os, samHeader);
+        craiIndex.addEntries(entries);
+    }
+
+    /**
      * Create index entries for a single container.
      * @param container the container to index
      */
@@ -55,14 +72,17 @@ public class CRAMCRAIIndexer {
         craiIndex.processContainer(container);
     }
 
-    // TODO this is only used by test code
-    public void addEntry(CRAIEntry entry) {
-        craiIndex.addEntry(entry);
+    @Override
+    public void processContainer(
+            final Container container,
+            final ValidationStringency validationStringency) {
+        processContainer(container);
     }
 
     /**
      * Finish creating the index by writing the accumulated entries out to the stream.
      */
+    @Override
     public void finish() {
         try {
             craiIndex.writeIndex(os);
@@ -81,27 +101,29 @@ public class CRAMCRAIIndexer {
      * @param craiStream stream for output index
      */
     public static void writeIndex(final SeekableStream cramStream, OutputStream craiStream) {
-        try {
-            final CramHeader cramHeader = CramIO.readCramHeader(cramStream);
-            final CRAMCRAIIndexer indexer = new CRAMCRAIIndexer(craiStream, cramHeader.getSamFileHeader());
-            final Version cramVersion = cramHeader.getVersion();
+        final CramHeader cramHeader = CramIO.readCramHeader(cramStream);
+        final SAMFileHeader samFileHeader = Container.readSAMFileHeaderContainer(cramHeader.getCRAMVersion(), cramStream, null);
+        if (samFileHeader.getSortOrder() != SAMFileHeader.SortOrder.coordinate) {
+            throw new SAMException(String.format(
+                    "Input must be coordinate sorted (found %s) to create an index.",
+                    samFileHeader.getSortOrder()));
+        }
+        final CRAMCRAIIndexer indexer = new CRAMCRAIIndexer(craiStream, samFileHeader);
+        final CRAMVersion cramVersion = cramHeader.getCRAMVersion();
 
-            // get the first container and it's offset
-            long offset = cramStream.position();
-            Container container = ContainerIO.readContainer(cramVersion, cramStream);
+        // get the first container
+        try {
+            Container container = new Container(cramVersion, cramStream, cramStream.position());
 
             while (container != null && !container.isEOF()) {
-                container.offset = offset;
                 indexer.processContainer(container);
-                offset = cramStream.position();
-                container = ContainerIO.readContainer(cramVersion, cramStream);
+                container = new Container(cramVersion, cramStream, cramStream.position());
             }
+        } catch (final IOException e) {
+            throw new RuntimeIOException("error getting stream position", e);
+        }
 
-            indexer.finish();
-        }
-        catch (IOException e) {
-            throw new RuntimeIOException("Error writing CRAI index to output stream");
-        }
+        indexer.finish();
     }
 
     /**

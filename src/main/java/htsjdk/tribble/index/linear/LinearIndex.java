@@ -18,6 +18,7 @@
 
 package htsjdk.tribble.index.linear;
 
+import htsjdk.samtools.util.IOUtil;
 import htsjdk.tribble.index.AbstractIndex;
 import htsjdk.tribble.index.Block;
 import htsjdk.tribble.index.Index;
@@ -28,11 +29,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
+import java.nio.file.Path;
+import java.util.*;
 
 /**
  * Index defined by dividing the genome by chromosome, then each chromosome into bins of fixed width (in
@@ -56,13 +54,13 @@ import java.util.List;
 public class LinearIndex extends AbstractIndex {
 
     // NOTE: To debug uncomment the System.getProperty and recompile.
-    public static final double MAX_FEATURES_PER_BIN = Double.valueOf(System.getProperty("MAX_FEATURES_PER_BIN", "100"));
+    public static final double MAX_FEATURES_PER_BIN = Double.parseDouble(System.getProperty("MAX_FEATURES_PER_BIN", "100"));
     public static final int INDEX_TYPE = IndexType.LINEAR.fileHeaderTypeIdentifier;
 
     private final static int MAX_BIN_WIDTH = 1 * 1000 * 1000 * 1000; //  widths must be less than 1 billion
 
     // 1MB: we will no merge bins with any features in them beyond this size, no matter how sparse, per chromosome
-    private static final long MAX_BIN_WIDTH_FOR_OCCUPIED_CHR_INDEX = Long.valueOf(System.getProperty("MAX_BIN_WIDTH_FOR_OCCUPIED_CHR_INDEX", "1024000"));
+    private static final long MAX_BIN_WIDTH_FOR_OCCUPIED_CHR_INDEX = Long.parseLong(System.getProperty("MAX_BIN_WIDTH_FOR_OCCUPIED_CHR_INDEX", "1024000"));
 
     public static boolean enableAdaptiveIndexing = true;
 
@@ -71,10 +69,19 @@ public class LinearIndex extends AbstractIndex {
      * @param indices
      * @param featureFile
      */
-    public LinearIndex(final List<ChrIndex> indices, final File featureFile) {
-        super(featureFile.getAbsolutePath());
+    public LinearIndex(final List<ChrIndex> indices, final Path featureFile) {
+        super(featureFile);
         for (final ChrIndex index : indices)
             chrIndices.put(index.getName(), index);
+    }
+
+    /**
+     * Initialize using the specified {@code indices}
+     * @param indices
+     * @param featureFile
+     */
+    public LinearIndex(final List<ChrIndex> indices, final File featureFile) {
+        this(indices, IOUtil.toPath(featureFile));
     }
 
     private LinearIndex(final LinearIndex parent, final List<ChrIndex> indices) {
@@ -92,6 +99,14 @@ public class LinearIndex extends AbstractIndex {
     }
 
     /**
+     * Initialize with default parameters
+     * @param featurePath Path for which this is an index
+     */
+    public LinearIndex(final Path featurePath) {
+        super(featurePath);
+    }
+
+    /**
      * Load from file.
      * @param inputStream This method assumes that the input stream is already buffered as appropriate.
      */
@@ -101,6 +116,7 @@ public class LinearIndex extends AbstractIndex {
         read(dis);
     }
 
+    @Override
     public boolean isCurrentVersion() {
         if (!super.isCurrentVersion()) return false;
 
@@ -117,9 +133,10 @@ public class LinearIndex extends AbstractIndex {
         return INDEX_TYPE;
     }
 
+    @Override
     public List<String> getSequenceNames() {
-        return (chrIndices == null ? Collections.EMPTY_LIST :
-                Collections.unmodifiableList(new ArrayList<String>(chrIndices.keySet())));
+        return (chrIndices == null ? Collections.emptyList() :
+                Collections.unmodifiableList(new ArrayList<>(chrIndices.keySet())));
     }
 
     @Override
@@ -173,6 +190,7 @@ public class LinearIndex extends AbstractIndex {
             this.nFeatures = 0;
         }
 
+        @Override
         public String getName() {
             return name;
         }
@@ -186,10 +204,12 @@ public class LinearIndex extends AbstractIndex {
             return blocks.size();
         }
 
+        @Override
         public List<Block> getBlocks() {
             return blocks;
         }
 
+        @Override
         public List<Block> getBlocks(final int start, final int end) {
             if (blocks.isEmpty()) {
                 return Collections.emptyList();
@@ -209,10 +229,10 @@ public class LinearIndex extends AbstractIndex {
                     final long endPos = blocks.get(endBinNumber).getStartPosition() + blocks.get(endBinNumber).getSize();
                     final long size = endPos - startPos;
                     if (size == 0) {
-                        return Collections.EMPTY_LIST;
+                        return Collections.emptyList();
                     } else {
                         final Block mergedBlock = new Block(startPos, size);
-                        return Arrays.asList(mergedBlock);
+                        return Collections.singletonList(mergedBlock);
                     }
                 }
             }
@@ -231,6 +251,7 @@ public class LinearIndex extends AbstractIndex {
             this.nFeatures++;
         }
 
+        @Override
         public void write(final LittleEndianOutputStream dos) throws IOException {
 
             // Chr name, binSize,  # bins,  longest feature
@@ -253,6 +274,7 @@ public class LinearIndex extends AbstractIndex {
             dos.writeLong(pos + size);
         }
 
+        @Override
         public void read(final LittleEndianInputStream dis) throws IOException {
             name = dis.readString();
             binWidth = dis.readInt();
@@ -285,6 +307,11 @@ public class LinearIndex extends AbstractIndex {
                     && nFeatures == other.nFeatures
                     && name.equals(other.name)
                     && blocks.equals(other.blocks);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(binWidth, longestFeature, nFeatures, name, blocks);
         }
 
         /**

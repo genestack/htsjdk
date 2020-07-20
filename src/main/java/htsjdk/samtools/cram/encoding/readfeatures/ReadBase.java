@@ -17,7 +17,10 @@
  */
 package htsjdk.samtools.cram.encoding.readfeatures;
 
+import htsjdk.samtools.cram.structure.CRAMCompressionRecord;
+
 import java.io.Serializable;
+import java.util.Objects;
 
 /**
  * A read feature representing a single base with associated quality score.
@@ -46,27 +49,8 @@ public class ReadBase implements Serializable, ReadFeature {
         return position;
     }
 
-    public void setPosition(final int position) {
-        this.position = position;
-    }
-
     public byte getQualityScore() {
         return qualityScore;
-    }
-
-    public void setQualityScore(final byte qualityScore) {
-        this.qualityScore = qualityScore;
-    }
-
-    @Override
-    public boolean equals(final Object obj) {
-        if (!(obj instanceof ReadBase))
-            return false;
-
-        final ReadBase readBase = (ReadBase) obj;
-
-        return position == readBase.position && base == readBase.base && qualityScore == readBase.qualityScore;
-
     }
 
     @Override
@@ -74,7 +58,7 @@ public class ReadBase implements Serializable, ReadFeature {
         return new StringBuilder(getClass().getSimpleName() + "[")
                 .append("position=").append(position)
                 .append("; base=").appendCodePoint(base)
-                .append("; score=").appendCodePoint(qualityScore)
+                .append("; score=").appendCodePoint(qualityScore == CRAMCompressionRecord.MISSING_QUALITY_SCORE ? 0 : qualityScore)
                 .append("] ").toString();
     }
 
@@ -86,4 +70,18 @@ public class ReadBase implements Serializable, ReadFeature {
         this.base = base;
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        final ReadBase readBase = (ReadBase) o;
+        return position == readBase.position &&
+                base == readBase.base &&
+                qualityScore == readBase.qualityScore;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(position, base, qualityScore);
+    }
 }

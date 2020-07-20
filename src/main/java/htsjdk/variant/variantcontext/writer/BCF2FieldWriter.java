@@ -231,6 +231,7 @@ public abstract class BCF2FieldWriter {
             super(header, fieldEncoder);
         }
 
+        @Override
         public void addGenotype(final BCF2Encoder encoder, final VariantContext vc, final Genotype g) throws IOException {
             final String fieldValue = g.getFilters();
             getFieldEncoder().encodeValue(encoder, fieldValue, encodingType, nValuesPerGenotype);
@@ -255,7 +256,7 @@ public abstract class BCF2FieldWriter {
             if ( vc.getNAlleles() > BCF2Utils.MAX_ALLELES_IN_GENOTYPES )
                 throw new IllegalStateException("Current BCF2 encoder cannot handle sites " +
                         "with > " + BCF2Utils.MAX_ALLELES_IN_GENOTYPES + " alleles, but you have "
-                        + vc.getNAlleles() + " at " + vc.getChr() + ":" + vc.getStart());
+                        + vc.getNAlleles() + " at " + vc.getContig() + ":" + vc.getStart());
 
             encodingType = BCF2Type.INT8;
             buildAlleleMap(vc);
@@ -272,7 +273,7 @@ public abstract class BCF2FieldWriter {
                     // we encode the actual allele
                     final Allele a = g.getAllele(i);
                     final int offset = getAlleleOffset(a);
-                    final int encoded = ((offset+1) << 1) | (g.isPhased() ? 0x01 : 0x00);
+                    final int encoded = ((offset+1) << 1) | ((g.isPhased() && i!=0) ? 0x01 : 0x00);
                     encoder.encodeRawBytes(encoded, encodingType);
                 } else {
                     // we need to pad with missing as we have ploidy < max for this sample

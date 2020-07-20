@@ -171,6 +171,9 @@ public class SAMValidationError implements Serializable {
 
         HEADER_RECORD_MISSING_REQUIRED_TAG,
 
+        /** Header tag contains illegal value */
+        HEADER_TAG_NON_CONFORMING_VALUE,
+
         /** Date string is not ISO-8601 */
         INVALID_DATE_STRING(Severity.WARNING),
 
@@ -205,7 +208,35 @@ public class SAMValidationError implements Serializable {
         MISMATCH_MATE_CIGAR_STRING,
 
         /** There is a Cigar String (stored in the MC Tag) for a read whose mate is NOT mapped. */
-        MATE_CIGAR_STRING_INVALID_PRESENCE;
+        MATE_CIGAR_STRING_INVALID_PRESENCE,
+
+        /** The mate reference of the unpaired read should be "*" */
+        INVALID_UNPAIRED_MATE_REFERENCE,
+
+        /** The unaligned mate read start position should be 0 */
+        INVALID_UNALIGNED_MATE_START,
+
+        /** Mismatch between the number of bases covered by the CIGAR and sequence */
+        MISMATCH_CIGAR_SEQ_LENGTH,
+
+        /** Mismatch between the sequence and quality length */
+        MISMATCH_SEQ_QUAL_LENGTH,
+
+        /** Mismatch between file and sequence dictionaries */
+        MISMATCH_FILE_SEQ_DICT,
+
+        /** Base quality is not stored for the read. */
+        QUALITY_NOT_STORED(Severity.WARNING),
+
+        /** A duplicate Sam tag was found in a record. */
+        DUPLICATE_SAM_TAG,
+
+        /** The CG Tag should only be used in BAM format to hold a large cigar */
+        CG_TAG_FOUND_IN_ATTRIBUTES,
+
+        /** One or more reference sequences in the dictionary are too long for BAI indexing. */
+        REF_SEQ_TOO_LONG_FOR_BAI(Severity.WARNING);
+
 
         public final Severity severity;
 
@@ -245,10 +276,10 @@ public class SAMValidationError implements Serializable {
 
     /**
      * Construct a SAMValidationError with possibly-known record number.
-     * @param type
-     * @param message
-     * @param readName May be null if readName is not known.
-     * @param recordNumber Position of the record in the SAM file it has been read from.  -1 if not known.
+     * @param type The validation error type
+     * @param message The message explaining the problem
+     * @param readName The read which is the cause of the violation. May be null if readName is not known.
+     * @param recordNumber Position of the record in the SAM file it has been read from. -1 if not known.
      */
     public SAMValidationError(final Type type, final String message, final String readName, final long recordNumber) {
         this(type, message, readName);
@@ -257,9 +288,10 @@ public class SAMValidationError implements Serializable {
 
     public String toString() {
         final StringBuilder builder = new StringBuilder();
-        builder.append(type.severity.toString()).append(": ");
+        builder.append(type.severity.name()).append("::");
+        builder.append(type.name()).append(":");
         if (source != null) {
-            builder.append("File ").append(source.toString()).append(", ");
+            builder.append("File ").append(source).append(", ");
         }
         if (recordNumber > 0) {
             builder.append("Record ").append(recordNumber).append(", ");

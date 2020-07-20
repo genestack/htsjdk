@@ -1,40 +1,33 @@
 package htsjdk.samtools.cram.build;
 
+import htsjdk.samtools.SAMFileHeader;
 import htsjdk.samtools.cram.io.CountingInputStream;
 import htsjdk.samtools.cram.structure.Container;
-import htsjdk.samtools.cram.structure.ContainerIO;
 import htsjdk.samtools.cram.structure.CramHeader;
 
-import java.io.IOException;
+import java.io.Closeable;
 import java.io.InputStream;
 import java.util.Iterator;
 
 /**
  * An iterator of CRAM containers read from an {@link java.io.InputStream}.
  */
-public class CramContainerIterator implements Iterator<Container> {
+public class CramContainerIterator implements Iterator<Container>, Closeable {
     private CramHeader cramHeader;
-    private InputStream inputStream;
+    private final SAMFileHeader samFileHeader;
+    private final CountingInputStream countingInputStream;
+
     private Container nextContainer;
     private boolean eof = false;
-    private long offset = 0;
 
-    public CramContainerIterator(final InputStream inputStream) throws IOException {
-        cramHeader = CramIO.readCramHeader(inputStream);
-        this.inputStream = inputStream;
+    public CramContainerIterator(final InputStream inputStream) {
+        this.countingInputStream = new CountingInputStream(inputStream);
+        cramHeader = CramIO.readCramHeader(countingInputStream);
+        samFileHeader = Container.readSAMFileHeaderContainer(cramHeader.getCRAMVersion(), countingInputStream, null);
     }
 
-    void readNextContainer() {
-        try {
-            final CountingInputStream cis = new CountingInputStream(inputStream);
-            nextContainer = ContainerIO.readContainer(cramHeader.getVersion(), cis);
-            final long containerSizeInBytes = cis.getCount();
-
-            nextContainer.offset = offset;
-            offset += containerSizeInBytes;
-        } catch (final IOException e) {
-            throw new RuntimeException(e);
-        }
+    private void readNextContainer() {
+        nextContainer = containerFromStream(countingInputStream);
 
         if (nextContainer.isEOF()) {
             eof = true;
@@ -42,10 +35,30 @@ public class CramContainerIterator implements Iterator<Container> {
         }
     }
 
+    /**
+     * Consume the entirety of the next container from the stream.
+     *
+     * @see CramContainerIterator#containerFromStream(CountingInputStream)
+     *
+     * @param countingStream the {@link CountingInputStream} to read from
+     * @return The next Container from the stream.
+     */
+    protected Container containerFromStream(final CountingInputStream countingStream) {
+        final long containerByteOffset = countingStream.getCount();
+        return new Container(cramHeader.getCRAMVersion(), countingStream, containerByteOffset);
+    }
+
     @Override
     public boolean hasNext() {
-        if (eof) return false;
-        if (nextContainer == null) readNextContainer();
+        if (eof) {
+            return false;
+        }
+
+        if (nextContainer == null) {
+            readNextContainer();
+        }
+
+        // readNextContainer() may set eof
         return !eof;
     }
 
@@ -65,13 +78,14 @@ public class CramContainerIterator implements Iterator<Container> {
         return cramHeader;
     }
 
+    public SAMFileHeader getSamFileHeader() {
+        return samFileHeader;
+    }
+
+    @Override
     public void close() {
         nextContainer = null;
         cramHeader = null;
-        //noinspection EmptyCatchBlock
-        try {
-            inputStream.close();
-        } catch (final Exception e) {
-        }
+        countingInputStream.close();
     }
 }

@@ -78,6 +78,7 @@ public class BAMFileSpan implements SAMFileSpan, Serializable {
      * Does this chunk list map to any position within the BAM file?
      * @return True iff the ChunkList points to any data within the BAM.
      */
+    @Override
     public boolean isEmpty() {
         return chunks.isEmpty();
     }
@@ -86,6 +87,7 @@ public class BAMFileSpan implements SAMFileSpan, Serializable {
      * Deep clone the given chunk list.
      * @return A copy of the chunk list.
      */
+    @Override
     public BAMFileSpan clone() {
         final BAMFileSpan clone = new BAMFileSpan();
         for(final Chunk chunk: chunks)
@@ -100,6 +102,7 @@ public class BAMFileSpan implements SAMFileSpan, Serializable {
      * @param fileSpan The filespan before which to eliminate.
      * @return A new BAMFileSpan which contains the portion of the chunk list after the given chunk.
      */
+    @Override
     public SAMFileSpan removeContentsBefore(final SAMFileSpan fileSpan) {
         if(fileSpan == null)
             return clone();
@@ -115,15 +118,55 @@ public class BAMFileSpan implements SAMFileSpan, Serializable {
         validateSorted();
 
         final BAMFileSpan trimmedChunkList = new BAMFileSpan();
+        final long chunkStart = bamFileSpan.chunks.get(0).getChunkStart();
         for(final Chunk chunkToTrim: chunks) {
-            if(chunkToTrim.getChunkEnd() > chunkToTrim.getChunkStart()) {
-                if(chunkToTrim.getChunkStart() >= bamFileSpan.chunks.get(0).getChunkStart()) {
+            if(chunkToTrim.getChunkEnd() > chunkStart) {
+                if(chunkToTrim.getChunkStart() >= chunkStart) {
                     // This chunk from the list is completely beyond the start of the filtering chunk.
                     trimmedChunkList.add(chunkToTrim.clone());
                 }
                 else {
                     // This chunk from the list partially overlaps the filtering chunk and must be trimmed.
-                    trimmedChunkList.add(new Chunk(bamFileSpan.chunks.get(0).getChunkStart(),chunkToTrim.getChunkEnd()));
+                    trimmedChunkList.add(new Chunk(chunkStart,chunkToTrim.getChunkEnd()));
+                }
+            }
+        }
+        return trimmedChunkList;
+    }
+
+    /**
+     * Creates a new file span by removing all chunks after the given file span ends.
+     * If a chunk in the chunk list starts before and ends after the given
+     * chunk, the second portion of the chunk will be deleted.
+     * @param fileSpan The filespan after which to eliminate.
+     * @return A new BAMFileSpan which contains the portion of the chunk list before the
+     * given chunk.
+     */
+    public SAMFileSpan removeContentsAfter(final SAMFileSpan fileSpan) {
+        if(fileSpan == null)
+            return clone();
+
+        if(!(fileSpan instanceof BAMFileSpan))
+            throw new SAMException("Unable to compare ");
+
+        final BAMFileSpan bamFileSpan = (BAMFileSpan)fileSpan;
+
+        if(bamFileSpan.isEmpty())
+            return clone();
+
+        validateSorted();
+
+        final BAMFileSpan trimmedChunkList = new BAMFileSpan();
+        final long chunkEnd = bamFileSpan.chunks.get(bamFileSpan.chunks.size() - 1).getChunkEnd();
+        for(final Chunk chunkToTrim: chunks) {
+            if(chunkToTrim.getChunkStart() < chunkEnd) {
+                if(chunkToTrim.getChunkEnd() <= chunkEnd) {
+                    // This chunk from the list is completely before the end of the filtering chunk.
+                    trimmedChunkList.add(chunkToTrim.clone());
+                }
+                else {
+                    // This chunk from the list partially overlaps the filtering chunk and must be trimmed.
+                    trimmedChunkList.add(new Chunk(chunkToTrim.getChunkStart(),chunkEnd));
                 }
             }
         }
@@ -134,6 +177,7 @@ public class BAMFileSpan implements SAMFileSpan, Serializable {
      * Gets a file span over the data immediately following this span.
      * @return The a pointer to data immediately following this span.
      */
+    @Override
     public SAMFileSpan getContentsFollowing() {
         if(chunks.isEmpty())
             throw new SAMException("Unable to get the file pointer following this one: no data present.");

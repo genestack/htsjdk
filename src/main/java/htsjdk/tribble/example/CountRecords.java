@@ -29,7 +29,6 @@ import htsjdk.tribble.Feature;
 import htsjdk.tribble.FeatureCodec;
 import htsjdk.tribble.Tribble;
 import htsjdk.tribble.bed.BEDCodec;
-import htsjdk.tribble.gelitext.GeliTextCodec;
 import htsjdk.tribble.index.Index;
 import htsjdk.tribble.index.IndexFactory;
 import htsjdk.tribble.index.linear.LinearIndex;
@@ -69,7 +68,7 @@ public class CountRecords {
             printUsage();
         }
 
-        int optimizeIndex = args.length == 2 ? Integer.valueOf(args[1]) : -1;
+        int optimizeIndex = args.length == 2 ? Integer.parseInt(args[1]) : -1;
 
         // determine the codec
         FeatureCodec codec = getFeatureCodec(featureFile);
@@ -189,16 +188,8 @@ public class CountRecords {
      */
     public static FeatureCodec getFeatureCodec(File featureFile) {
         // quickly determine the codec type
-        //if (featureFile.getName().endsWith(".vcf") || featureFile.getName().endsWith(".VCF") )
-        //    return new VCFCodec();
-        if (featureFile.getName().endsWith(".bed") || featureFile.getName().endsWith(".BED") )
+              if (featureFile.getName().endsWith(".bed") || featureFile.getName().endsWith(".BED") )
             return new BEDCodec();
-        //if (featureFile.getName().endsWith(".snp") || featureFile.getName().endsWith(".rod") )
-        //    return new OldDbSNPCodec();
-        if (featureFile.getName().endsWith(".geli.calls") || featureFile.getName().endsWith(".geli") )
-            return new GeliTextCodec();
-        //if (featureFile.getName().endsWith(".txt") || featureFile.getName().endsWith(".TXT") )
-        //    return new SoapSNPCodec();
         throw new IllegalArgumentException("Unable to determine correct file type based on the file name, for file -> " + featureFile);
     }
 }

@@ -1,9 +1,8 @@
 package htsjdk.samtools.cram.build;
 
 import htsjdk.samtools.cram.structure.Container;
-import htsjdk.samtools.cram.structure.ContainerIO;
-import htsjdk.samtools.cram.structure.CramHeader;
 import htsjdk.samtools.seekablestream.SeekableStream;
+import htsjdk.samtools.util.RuntimeIOException;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -11,23 +10,19 @@ import java.util.Iterator;
 import java.util.List;
 
 /**
- * An iterator of CRAM containers read from locations in {@link htsjdk.samtools.seekablestream.SeekableStream}. The locations are specified with
- * pairs of coordinates, they are basically file pointers as returned for example by {@link htsjdk.samtools.SamReader.Indexing#getFilePointerSpanningReads()}
+ * An iterator of CRAM containers read from locations in a {@link htsjdk.samtools.seekablestream.SeekableStream}.
+ * The locations are specified with pairs of coordinates, and are basically file pointers as returned for example
+ * by {@link htsjdk.samtools.SamReader.Indexing#getFilePointerSpanningReads()}
  */
-public class CramSpanContainerIterator implements Iterator<Container> {
-    private final CramHeader cramHeader;
+public final class CramSpanContainerIterator extends CramContainerIterator {
     private final SeekableStream seekableStream;
     private Iterator<Boundary> containerBoundaries;
     private Boundary currentBoundary;
-    private long firstContainerOffset;
 
     private CramSpanContainerIterator(final SeekableStream seekableStream, final long[] coordinates) throws IOException {
+        super(seekableStream);
         this.seekableStream = seekableStream;
-        seekableStream.seek(0);
-        this.cramHeader = CramIO.readCramHeader(seekableStream);
-        firstContainerOffset = seekableStream.position();
-
-        final List<Boundary> boundaries = new ArrayList<Boundary>();
+        final List<Boundary> boundaries = new ArrayList<>();
         for (int i = 0; i < coordinates.length; i += 2) {
             boundaries.add(new Boundary(coordinates[i], coordinates[i + 1]));
         }
@@ -36,29 +31,30 @@ public class CramSpanContainerIterator implements Iterator<Container> {
         currentBoundary = containerBoundaries.next();
     }
 
-    public static CramSpanContainerIterator fromFileSpan(final SeekableStream seekableStream, final long[] coordinates) throws IOException {
-        return new CramSpanContainerIterator(seekableStream, coordinates);
+    public static CramSpanContainerIterator fromFileSpan(final SeekableStream seekableStream, final long[] coordinates) {
+        try {
+            seekableStream.seek(0);
+            return new CramSpanContainerIterator(seekableStream, coordinates);
+        } catch (final IOException e) {
+            throw new RuntimeIOException(e);
+        }
     }
 
     @Override
     public boolean hasNext() {
-        try {
-            if (currentBoundary.hasNext()) return true;
-            if (!containerBoundaries.hasNext()) return false;
-            currentBoundary = containerBoundaries.next();
-            return currentBoundary.hasNext();
-        } catch (final IOException e) {
-            throw new RuntimeException(e);
+        if (currentBoundary.hasNext()) {
+            return true;
         }
+        if (!containerBoundaries.hasNext()) {
+            return false;
+        }
+        currentBoundary = containerBoundaries.next();
+        return currentBoundary.hasNext();
     }
 
     @Override
     public Container next() {
-        try {
-            return currentBoundary.next();
-        } catch (final IOException e) {
-            throw new RuntimeException(e);
-        }
+        return currentBoundary.next();
     }
 
     @Override
@@ -66,35 +62,42 @@ public class CramSpanContainerIterator implements Iterator<Container> {
         throw new RuntimeException("Not allowed.");
     }
 
-    public CramHeader getCramHeader() {
-        return cramHeader;
-    }
-
-    private class Boundary {
+    private class Boundary implements Iterator<Container> {
         final long start;
         final long end;
 
         public Boundary(final long start, final long end) {
             this.start = start;
             this.end = end;
-            if (start >= end) throw new RuntimeException("Boundary start is greater than end.");
+            if (start >= end) {
+                throw new RuntimeException("Boundary start is greater than end.");
+            }
         }
 
-        boolean hasNext() throws IOException {
-            return seekableStream.position() <= (end >> 16);
+        @Override
+        public boolean hasNext() {
+            try {
+                return seekableStream.position() <= (end >> 16);
+            } catch (final IOException e) {
+                throw new RuntimeIOException(e);
+            }
         }
 
-        Container next() throws IOException {
-            if (seekableStream.position() < (start >> 16)) seekableStream.seek(start >> 16);
-            if (seekableStream.position() > (end >> 16)) throw new RuntimeException("No more containers in this boundary.");
-            final long offset = seekableStream.position();
-            final Container c = ContainerIO.readContainer(cramHeader.getVersion(), seekableStream);
-            c.offset = offset;
-            return c;
-        }
-    }
+        @Override
+        public Container next() {
+            try {
+                if (seekableStream.position() < (start >> 16)) {
+                    seekableStream.seek(start >> 16);
+                }
 
-    public long getFirstContainerOffset() {
-        return firstContainerOffset;
+                if (!hasNext()) {
+                    throw new RuntimeException("No more containers in this boundary.");
+                }
+
+                return new Container(getCramHeader().getCRAMVersion(), seekableStream, seekableStream.position());
+            } catch (final IOException e) {
+                throw new RuntimeIOException(e);
+            }
+        }
     }
 }

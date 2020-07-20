@@ -23,6 +23,7 @@
  */
 package htsjdk.samtools;
 
+import htsjdk.HtsjdkTest;
 import htsjdk.samtools.util.CloserUtil;
 import org.testng.Assert;
 import org.testng.annotations.DataProvider;
@@ -36,13 +37,13 @@ import java.io.File;
  *
  * @author alecw@broadinstitute.org
  */
-public class SequenceNameTruncationAndValidationTest {
+public class SequenceNameTruncationAndValidationTest extends HtsjdkTest {
     private static File TEST_DATA_DIR = new File("src/test/resources/htsjdk/samtools");
 
     @Test(expectedExceptions = {SAMException.class}, dataProvider = "badSequenceNames")
     public void testSequenceRecordThrowsWhenInvalid(final String sequenceName) {
         new SAMSequenceRecord(sequenceName, 123);
-        Assert.fail("Should not reach here.");
+        Assert.fail("Should not reach here. Sequence " + sequenceName + " should have failed.");
     }
 
     @DataProvider(name = "badSequenceNames")
@@ -52,7 +53,13 @@ public class SequenceNameTruncationAndValidationTest {
                 {"\t"},
                 {"\n"},
                 {"="},
-                {"Hi, Mom!"}
+                {"Hi: Mom!"},
+                {"=Hi:Mom!"},
+                {"Hi:'Mom!"},
+                {"Hi:\"Mom!"},
+                {"Hi:)Mom!"},
+                {"Hi:(Mom!"},
+                {"Hi,@Mom!"}
         };
     }
 
@@ -64,7 +71,8 @@ public class SequenceNameTruncationAndValidationTest {
     @DataProvider(name = "goodSequenceNames")
     public Object[][] goodSequenceNames() {
         return new Object[][]{
-                {"Hi,@Mom!"}
+                {"Hi:@Mom!"},
+                {"Hi:=Mom!"}
         };
     }
 

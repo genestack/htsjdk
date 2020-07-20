@@ -23,10 +23,10 @@
  */
 package htsjdk.tribble.util;
 
-
 import htsjdk.samtools.SAMSequenceDictionary;
 import htsjdk.samtools.SAMSequenceRecord;
 import htsjdk.samtools.util.BlockCompressedInputStream;
+import htsjdk.samtools.util.FileExtensions;
 import htsjdk.tribble.TribbleException;
 import htsjdk.tribble.readers.TabixReader;
 
@@ -40,7 +40,11 @@ import java.util.List;
  */
 public class TabixUtils {
 
-    public static final String STANDARD_INDEX_EXTENSION = ".tbi";
+    /**
+     * @deprecated Use since June 2019 {@link FileExtensions#TABIX_INDEX} instead.
+     */
+    @Deprecated
+    public static final String STANDARD_INDEX_EXTENSION = FileExtensions.TABIX_INDEX;
 
     public static class TPair64 implements Comparable<TPair64> {
         public long u, v;
@@ -55,6 +59,7 @@ public class TabixUtils {
             v = p.v;
         }
 
+        @Override
         public int compareTo(final TPair64 p) {
             return u == p.u ? 0 : ((u < p.u) ^ (u < 0) ^ (p.u < 0)) ? -1 : 1; // unsigned 64-bit comparison
         }

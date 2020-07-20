@@ -23,11 +23,12 @@
  */
 package htsjdk.variant.variantcontext.writer;
 
+import htsjdk.HtsjdkTest;
+import htsjdk.samtools.util.FileExtensions;
 import htsjdk.tribble.AbstractFeatureReader;
 import htsjdk.tribble.CloseableTribbleIterator;
 import htsjdk.tribble.FeatureReader;
 import htsjdk.tribble.index.tabix.TabixIndex;
-import htsjdk.tribble.util.TabixUtils;
 import htsjdk.variant.variantcontext.VariantContext;
 import htsjdk.variant.vcf.VCF3Codec;
 import htsjdk.variant.vcf.VCFHeader;
@@ -36,15 +37,15 @@ import org.testng.annotations.Test;
 import java.io.File;
 import java.util.EnumSet;
 
-public class TabixOnTheFlyIndexCreationTest {
+public class TabixOnTheFlyIndexCreationTest extends HtsjdkTest {
     private static final File SMALL_VCF = new File("src/test/resources/htsjdk/tribble/tabix/trioDup.vcf.gz");
     @Test
     public void simpleTest() throws Exception {
         final VCF3Codec codec = new VCF3Codec();
         final FeatureReader<VariantContext> reader = AbstractFeatureReader.getFeatureReader(SMALL_VCF.getAbsolutePath(), codec, false);
         final VCFHeader headerFromFile = (VCFHeader)reader.getHeader();
-        final File vcf = File.createTempFile("TabixOnTheFlyIndexCreationTest.", ".vcf.gz");
-        final File tabix = new File(vcf.getAbsolutePath() + TabixUtils.STANDARD_INDEX_EXTENSION);
+        final File vcf = File.createTempFile("TabixOnTheFlyIndexCreationTest.", FileExtensions.COMPRESSED_VCF);
+        final File tabix = new File(vcf.getAbsolutePath() + FileExtensions.TABIX_INDEX);
         vcf.deleteOnExit();
         tabix.deleteOnExit();
         final VariantContextWriter vcfWriter = new VariantContextWriterBuilder()

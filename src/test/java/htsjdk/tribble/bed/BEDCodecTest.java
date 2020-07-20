@@ -24,26 +24,65 @@
 
 package htsjdk.tribble.bed;
 
+import htsjdk.HtsjdkTest;
+import htsjdk.samtools.util.BlockCompressedFilePointerUtil;
+import htsjdk.samtools.util.BlockCompressedInputStream;
+import htsjdk.samtools.util.FileExtensions;
+import htsjdk.samtools.util.IOUtil;
 import htsjdk.tribble.AbstractFeatureReader;
 import htsjdk.tribble.Feature;
+import htsjdk.tribble.FeatureReader;
 import htsjdk.tribble.TestUtils;
 import htsjdk.tribble.annotation.Strand;
 import htsjdk.tribble.bed.FullBEDFeature.Exon;
-import htsjdk.tribble.index.IndexFactory;
-import htsjdk.tribble.index.linear.LinearIndex;
 import htsjdk.tribble.index.tabix.TabixFormat;
-import htsjdk.tribble.util.LittleEndianOutputStream;
+import htsjdk.tribble.readers.AsciiLineReaderIterator;
+import htsjdk.tribble.readers.LineIterator;
+import htsjdk.tribble.readers.PositionalBufferedStream;
+import htsjdk.tribble.util.ParsingUtils;
 import org.testng.Assert;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.awt.*;
-import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 
-public class BEDCodecTest {
+public class BEDCodecTest extends HtsjdkTest {
+
+    @DataProvider(name = "gzippedBedTestData")
+    public Object[][] getBedTestData(){
+        return new Object[][] {
+                {
+                    // BGZP BED file with no header, 2 features
+                    new File(TestUtils.DATA_DIR, "bed/2featuresNoHeader.bed.gz"), 0  // header has length 0
+                },
+                {
+                    // BGZP BED file with one line header, 2 features
+                    new File(TestUtils.DATA_DIR, "bed/2featuresWithHeader.bed.gz"), 10 // header has length 10
+
+                }
+        };
+    }
+
+    @Test(dataProvider = "gzippedBedTestData")
+    public void testReadActualHeader(final File gzippedBedFile, final int firstFeatureOffset) throws IOException {
+        // Given an indexable SOURCE on a BED file, test that readActualHeader retains the correct offset
+        // of the first feature, whether there is a header or not
+        BEDCodec bedCodec = new BEDCodec();
+        try (final InputStream is = ParsingUtils.openInputStream(gzippedBedFile.getPath());
+             final BlockCompressedInputStream bcis = new BlockCompressedInputStream(is))
+        {
+            AsciiLineReaderIterator it = (AsciiLineReaderIterator) bedCodec.makeIndexableSourceFromStream(bcis);
+            Object header = bedCodec.readActualHeader(it);
+            // BEDCodec doesn't model or return the BED header, even when there is one!
+            Assert.assertNull(header);
+            Assert.assertEquals(BlockCompressedFilePointerUtil.getBlockAddress(it.getPosition()), 0);
+            Assert.assertEquals(BlockCompressedFilePointerUtil.getBlockOffset(it.getPosition()), firstFeatureOffset);
+        }
+    }
 
     @Test
     public void testSimpleDecode() {
@@ -52,17 +91,17 @@ public class BEDCodecTest {
         BEDFeature feature;
 
         feature = codec.decode("chr1 1");
-        Assert.assertEquals(feature.getChr(), "chr1");
+        Assert.assertEquals(feature.getContig(), "chr1");
         Assert.assertEquals(feature.getStart(), 2);
         Assert.assertEquals(feature.getEnd(), 2);
 
         feature = codec.decode("chr1 1 2");
-        Assert.assertEquals(feature.getChr(), "chr1");
+        Assert.assertEquals(feature.getContig(), "chr1");
         Assert.assertEquals(feature.getStart(), 2);
         Assert.assertEquals(feature.getEnd(), 2);
 
         feature = codec.decode("chr1 1 3");
-        Assert.assertEquals(feature.getChr(), "chr1");
+        Assert.assertEquals(feature.getContig(), "chr1");
         Assert.assertEquals(feature.getStart(), 2);
         Assert.assertEquals(feature.getEnd(), 3);
     }
@@ -77,7 +116,7 @@ public class BEDCodecTest {
         // Borrowed samples from Example: on http://genome.ucsc.edu/FAQ/FAQformat#format1
 
         feature = (FullBEDFeature) codec.decode("chr22 1000 5000 cloneA 960 + 1000 5000 0 2 567,488, 0,3512");
-        Assert.assertEquals(feature.getChr(), "chr22");
+        Assert.assertEquals(feature.getContig(), "chr22");
         Assert.assertEquals(feature.getStart(), 1001);
         Assert.assertEquals(feature.getEnd(), 5000);
         Assert.assertEquals(feature.getName(), "cloneA");
@@ -103,7 +142,7 @@ public class BEDCodecTest {
         Assert.assertEquals(exons.get(1).getCodingLength(), 488);
 
         feature = (FullBEDFeature) codec.decode("chr22 2000 6000 cloneB 900 - 2000 6000 0 2 433,399, 0,3601");
-        Assert.assertEquals(feature.getChr(), "chr22");
+        Assert.assertEquals(feature.getContig(), "chr22");
         Assert.assertEquals(feature.getStart(), 2001);
         Assert.assertEquals(feature.getEnd(), 6000);
         Assert.assertEquals(feature.getName(), "cloneB");
@@ -150,23 +189,23 @@ public class BEDCodecTest {
         Iterable<Feature> iter = reader.iterator();
         int count = 0;
         for (Feature feat : iter) {
-            Assert.assertTrue(feat.getChr().length() > 0);
+            Assert.assertTrue(feat.getContig().length() > 0);
             Assert.assertTrue(feat.getEnd() >= feat.getStart());
 
             if (count == 0) {
-                Assert.assertEquals("1", feat.getChr());
+                Assert.assertEquals("1", feat.getContig());
                 Assert.assertEquals(25592413 + 1, feat.getStart());
                 Assert.assertEquals(25657872, feat.getEnd());
             }
 
             if (count == 3) {
-                Assert.assertEquals("1", feat.getChr());
+                Assert.assertEquals("1", feat.getContig());
                 Assert.assertEquals(152555536 + 1, feat.getStart());
                 Assert.assertEquals(152587611, feat.getEnd());
             }
 
             if (count == 28) {
-                Assert.assertEquals("14", feat.getChr());
+                Assert.assertEquals("14", feat.getContig());
                 Assert.assertEquals(73996607 + 1, feat.getStart());
                 Assert.assertEquals(74025282, feat.getEnd());
             }
@@ -204,24 +243,6 @@ public class BEDCodecTest {
         reader.close();
     }
 
-    private void createIndex(File testFile, File idxFile) throws IOException {
-        // Create an index if missing
-        if (idxFile.exists()) {
-            idxFile.delete();
-        }
-        LinearIndex idx = (LinearIndex) IndexFactory.createLinearIndex(testFile, new BEDCodec());
-
-        LittleEndianOutputStream stream = null;
-        try {
-            stream = new LittleEndianOutputStream(new BufferedOutputStream(new FileOutputStream(idxFile)));
-            idx.write(stream);
-        } finally {
-            if (stream != null) {
-                stream.close();
-            }
-        }
-    }
-
     @Test
     public void testGetTabixFormat() {
         Assert.assertEquals(new BEDCodec().getTabixFormat(), TabixFormat.BED);
@@ -231,7 +252,7 @@ public class BEDCodecTest {
     public void testCanDecode() {
         final BEDCodec codec = new BEDCodec();
         final String pattern = "filename.%s%s";
-        for(final String bcExt: AbstractFeatureReader.BLOCK_COMPRESSED_EXTENSIONS) {
+        for(final String bcExt: FileExtensions.BLOCK_COMPRESSED) {
             Assert.assertTrue(codec.canDecode(String.format(pattern, "bed", bcExt)));
             Assert.assertFalse(codec.canDecode(String.format(pattern, "vcf", bcExt)));
             Assert.assertFalse(codec.canDecode(String.format(pattern, "bed.gzip", bcExt)));

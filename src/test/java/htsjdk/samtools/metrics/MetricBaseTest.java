@@ -1,10 +1,11 @@
 package htsjdk.samtools.metrics;
 
+import htsjdk.HtsjdkTest;
 import org.testng.Assert;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
-public class MetricBaseTest {
+public class MetricBaseTest extends HtsjdkTest {
 
     private static class TestMetric extends MetricBase{
         public Object anyObject;
@@ -66,7 +67,8 @@ public class MetricBaseTest {
         Assert.assertFalse(b.equals(a));
     }
 
-    @Test void testSelfEquality(){
+    @Test
+    public void testSelfEquality(){
         final A a = new A();
         final B b = new B();
         Assert.assertTrue(a.equals(a));

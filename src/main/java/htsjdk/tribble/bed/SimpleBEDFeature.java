@@ -51,27 +51,22 @@ public class SimpleBEDFeature implements BEDFeature {
         this.chr = chr;
     }
 
-
-    @Deprecated
-    @Override
-    public String getChr() {
-        return getContig();
-    }
-
-
     @Override
     public String getContig() {
         return chr;
     }
 
+    @Override
     public int getStart() {
         return start;
     }
 
+    @Override
     public int getEnd() {
         return end;
     }
 
+    @Override
     public Strand getStrand() {
         return strand;
     }
@@ -92,6 +87,7 @@ public class SimpleBEDFeature implements BEDFeature {
         this.end = end;
     }
 
+    @Override
     public String getType() {
         return type;
     }
@@ -100,6 +96,7 @@ public class SimpleBEDFeature implements BEDFeature {
         this.type = type;
     }
 
+    @Override
     public Color getColor() {
         return color;
     }
@@ -108,6 +105,7 @@ public class SimpleBEDFeature implements BEDFeature {
         this.color = color;
     }
 
+    @Override
     public String getDescription() {
         return description;
     }
@@ -116,6 +114,7 @@ public class SimpleBEDFeature implements BEDFeature {
         this.description = description;
     }
 
+    @Override
     public String getName() {
         return name;
     }
@@ -124,6 +123,7 @@ public class SimpleBEDFeature implements BEDFeature {
         this.name = name;
     }
 
+    @Override
     public float getScore() {
         return score;
     }
@@ -132,6 +132,7 @@ public class SimpleBEDFeature implements BEDFeature {
         this.score = score;
     }
 
+    @Override
     public String getLink() {
         return link;
     }
@@ -142,6 +143,7 @@ public class SimpleBEDFeature implements BEDFeature {
 
     final static List<FullBEDFeature.Exon> emptyExonList = new ArrayList();
 
+    @Override
     public java.util.List<FullBEDFeature.Exon> getExons() {
         return emptyExonList;
     }

@@ -32,7 +32,9 @@ import htsjdk.variant.variantcontext.VariantContext;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -55,8 +57,11 @@ public abstract class VCFCompoundHeaderLine extends VCFHeaderLine implements VCF
     private VCFHeaderLineCount countType;
     private String description;
     private VCFHeaderLineType type;
+    private String source;
+    private String version;
 
     // access methods
+    @Override
     public String getID() { return name; }
     public String getDescription() { return description; }
     public VCFHeaderLineType getType() { return type; }
@@ -66,6 +71,14 @@ public abstract class VCFCompoundHeaderLine extends VCFHeaderLine implements VCF
         if (!isFixedCount())
             throw new TribbleException("Asking for header line count when type is not an integer");
         return count;
+    }
+
+    public String getSource() {
+        return source;
+    }
+
+    public String getVersion() {
+        return version;
     }
 
     /**
@@ -118,14 +131,7 @@ public abstract class VCFCompoundHeaderLine extends VCFHeaderLine implements VCF
      * @param lineType     the header line type
      */
     protected VCFCompoundHeaderLine(String name, int count, VCFHeaderLineType type, String description, SupportedHeaderLineType lineType) {
-        super(lineType.toString(), "");
-        this.name = name;
-        this.countType = VCFHeaderLineCount.INTEGER;
-        this.count = count;
-        this.type = type;
-        this.description = description;
-        this.lineType = lineType;
-        validate();
+        this(name, count, type, description, lineType, null, null);
     }
 
     /**
@@ -138,12 +144,53 @@ public abstract class VCFCompoundHeaderLine extends VCFHeaderLine implements VCF
      * @param lineType     the header line type
      */
     protected VCFCompoundHeaderLine(String name, VCFHeaderLineCount count, VCFHeaderLineType type, String description, SupportedHeaderLineType lineType) {
+        this(name, count, type, description, lineType, null, null);
+    }
+
+    /**
+     * create a VCF format header line
+     *
+     * @param name         the name for this header line
+     * @param count        the count for this header line
+     * @param type         the type for this header line
+     * @param description  the description for this header line
+     * @param lineType     the header line type
+     * @param source       annotation source (case-insensitive, e.g. "dbsnp")
+     * @param version      exact version (e.g. "138")
+     */
+    protected VCFCompoundHeaderLine(String name, int count, VCFHeaderLineType type, String description, SupportedHeaderLineType lineType, String source, String version) {
+        super(lineType.toString(), "");
+        this.name = name;
+        this.countType = VCFHeaderLineCount.INTEGER;
+        this.count = count;
+        this.type = type;
+        this.description = description;
+        this.lineType = lineType;
+        this.source = source;
+        this.version = version;
+        validate();
+    }
+
+    /**
+     * create a VCF format header line
+     *
+     * @param name         the name for this header line
+     * @param count        the count type for this header line
+     * @param type         the type for this header line
+     * @param description  the description for this header line
+     * @param lineType     the header line type
+     * @param source       annotation source (case-insensitive, e.g. "dbsnp")
+     * @param version      exact version (e.g. "138")
+     */
+    protected VCFCompoundHeaderLine(String name, VCFHeaderLineCount count, VCFHeaderLineType type, String description, SupportedHeaderLineType lineType, String source, String version) {
         super(lineType.toString(), "");
         this.name = name;
         this.countType = count;
         this.type = type;
         this.description = description;
         this.lineType = lineType;
+        this.source = source;
+        this.version = version;
         validate();
     }
 
@@ -159,9 +206,13 @@ public abstract class VCFCompoundHeaderLine extends VCFHeaderLine implements VCF
         super(lineType.toString(), "");
 
         final ArrayList<String> expectedTags = new ArrayList(Arrays.asList("ID", "Number", "Type", "Description"));
-        if (version.isAtLeastAsRecentAs(VCFHeaderVersion.VCF4_2))
-            expectedTags.add("Version");
-        final Map<String, String> mapping = VCFHeaderLineTranslator.parseLine(version, line, expectedTags);
+        final List<String> recommendedTags;
+        if (version.isAtLeastAsRecentAs(VCFHeaderVersion.VCF4_2)) {
+            recommendedTags = Arrays.asList("Source", "Version");
+        } else {
+            recommendedTags = Collections.emptyList();
+        }
+        final Map<String, String> mapping = VCFHeaderLineTranslator.parseLine(version, line, expectedTags, recommendedTags);
         name = mapping.get("ID");
         count = -1;
         final String numberStr = mapping.get("Number");
@@ -172,11 +223,11 @@ public abstract class VCFCompoundHeaderLine extends VCFHeaderLine implements VCF
         } else if (numberStr.equals(VCFConstants.PER_GENOTYPE_COUNT)) {
             countType = VCFHeaderLineCount.G;
         } else if ((version.isAtLeastAsRecentAs(VCFHeaderVersion.VCF4_0) && numberStr.equals(VCFConstants.UNBOUNDED_ENCODING_v4)) ||
-                (!version.isAtLeastAsRecentAs(VCFHeaderVersion.VCF4_0) && numberStr.equals(VCFConstants.UNBOUNDED_ENCODING_v3))) {
+                   (!version.isAtLeastAsRecentAs(VCFHeaderVersion.VCF4_0) && numberStr.equals(VCFConstants.UNBOUNDED_ENCODING_v3))) {
             countType = VCFHeaderLineCount.UNBOUNDED;
         } else {
             countType = VCFHeaderLineCount.INTEGER;
-            count = Integer.valueOf(numberStr);
+            count = Integer.parseInt(numberStr);
 
         }
 
@@ -197,13 +248,21 @@ public abstract class VCFCompoundHeaderLine extends VCFHeaderLine implements VCF
 
         this.lineType = lineType;
 
+        if (version.isAtLeastAsRecentAs(VCFHeaderVersion.VCF4_2)) {
+            this.source = mapping.get("Source");
+            this.version = mapping.get("Version");
+        }
+
         validate();
     }
 
     private void validate() {
+        if (type != VCFHeaderLineType.Flag && countType == VCFHeaderLineCount.INTEGER && count <= 0)
+            throw new IllegalArgumentException(String.format("Invalid count number, with fixed count the number should be 1 or higher: key=%s name=%s type=%s desc=%s lineType=%s count=%s",
+                getKey(), name, type, description, lineType, count));
         if (name == null || type == null || description == null || lineType == null)
             throw new IllegalArgumentException(String.format("Invalid VCFCompoundHeaderLine: key=%s name=%s type=%s desc=%s lineType=%s",
-                    super.getKey(), name, type, description, lineType));
+                getKey(), name, type, description, lineType));
         if (name.contains("<") || name.contains(">"))
             throw new IllegalArgumentException("VCFHeaderLine: ID cannot contain angle brackets");
         if (name.contains("="))
@@ -221,6 +280,7 @@ public abstract class VCFCompoundHeaderLine extends VCFHeaderLine implements VCF
      * make a string representation of this header line
      * @return a string representation
      */
+    @Override
     protected String toStringEncoding() {
         Map<String, Object> map = new LinkedHashMap<String, Object>();
         map.put("ID", name);
@@ -245,6 +305,12 @@ public abstract class VCFCompoundHeaderLine extends VCFHeaderLine implements VCF
         map.put("Number", number);
         map.put("Type", type);
         map.put("Description", description);
+        if (source != null) {
+            map.put("Source", source);
+        }
+        if (version != null) {
+            map.put("Version", version);
+        }
         return lineType.toString() + "=" + VCFHeaderLine.toStringEncoding(map);
     }
 
@@ -276,6 +342,8 @@ public abstract class VCFCompoundHeaderLine extends VCFHeaderLine implements VCF
         result = 31 * result + description.hashCode();
         result = 31 * result + type.hashCode();
         result = 31 * result + lineType.hashCode();
+        result = 31 * result + (source != null ? source.hashCode() : 0);
+        result = 31 * result + (version != null ? version.hashCode() : 0);
         return result;
     }
 
@@ -298,4 +366,25 @@ public abstract class VCFCompoundHeaderLine extends VCFHeaderLine implements VCF
      */
     abstract boolean allowFlagValues();
 
+    /**
+     * Specify annotation source
+     * <p>
+     * This value is optional starting with VCFv4.2. 
+     * 
+     * @param source  annotation source (case-insensitive, e.g. "dbsnp")
+     */
+    public void setSource(final String source) {
+        this.source = source;
+    }
+
+    /**
+     * Specify annotation version
+     * <p>
+     * This value is optional starting with VCFv4.2. 
+     *
+     * @param version exact version (e.g. "138")
+     */
+    public void setVersion(final String version) {
+        this.version = version;
+    }
 }

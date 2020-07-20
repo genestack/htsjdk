@@ -29,10 +29,10 @@ package htsjdk.variant.variantcontext;
 // the imports for unit testing.
 
 import htsjdk.variant.VariantBaseTest;
-import htsjdk.variant.variantcontext.Allele;
 
 import org.testng.Assert;
 import org.testng.annotations.BeforeSuite;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 //    public Allele(byte[] bases, boolean isRef) {
@@ -48,7 +48,7 @@ import org.testng.annotations.Test;
  * Basic unit test for RecalData
  */
 public class AlleleUnitTest extends VariantBaseTest {
-    Allele ARef, A, T, ATIns, ATCIns, NoCall, SpandDel;
+    private Allele ARef, A, T, ATIns, ATCIns, NoCall, SpandDel, NonRef, UnspecifiedAlternate;
     
     @BeforeSuite
     public void before() {
@@ -62,6 +62,9 @@ public class AlleleUnitTest extends VariantBaseTest {
         NoCall = Allele.create(Allele.NO_CALL_STRING);
 
         SpandDel = Allele.create(Allele.SPAN_DEL_STRING);
+
+        NonRef = Allele.create(Allele.NON_REF_STRING);
+        UnspecifiedAlternate = Allele.create(Allele.UNSPECIFIED_ALTERNATE_ALLELE_STRING);
     }
 
     @Test
@@ -190,6 +193,22 @@ public class AlleleUnitTest extends VariantBaseTest {
     }
 
     @Test
+    public void testNonRefAllele() {
+        Assert.assertTrue(NonRef.isNonRefAllele());
+        Assert.assertTrue(UnspecifiedAlternate.isNonRefAllele());
+
+        Assert.assertFalse(T.isNonRefAllele());
+        Assert.assertFalse(ATIns.isNonRefAllele());
+
+        Assert.assertTrue(Allele.NON_REF_ALLELE.isNonRefAllele());
+        Assert.assertTrue(Allele.UNSPECIFIED_ALTERNATE_ALLELE.isNonRefAllele());
+
+        Allele a = Allele.create(new String("<*>"));
+        Assert.assertTrue(a.isNonRefAllele());
+    }
+
+
+    @Test
     public void testEquals() {
         Assert.assertTrue(ARef.basesMatch(A));
         Assert.assertFalse(ARef.equals(A));
@@ -251,12 +270,51 @@ public class AlleleUnitTest extends VariantBaseTest {
         Allele.create(Allele.SPAN_DEL_STRING, true); // spanning deletion cannot be ref allele
     }
 
-    @Test
-    public void testExtend() {
-        Assert.assertEquals("AT", Allele.extend(Allele.create("A"), "T".getBytes()).toString());
-        Assert.assertEquals("ATA", Allele.extend(Allele.create("A"), "TA".getBytes()).toString());
-        Assert.assertEquals("A", Allele.extend(Allele.NO_CALL, "A".getBytes()).toString());
-        Assert.assertEquals("ATCGA", Allele.extend(Allele.create("AT"), "CGA".getBytes()).toString());
-        Assert.assertEquals("ATCGA", Allele.extend(Allele.create("ATC"), "GA".getBytes()).toString());
+    @DataProvider
+    public Object[][] getExtendTests() {
+        return new Object[][]{
+                {Allele.create("A"), "T", "AT"},
+                {Allele.create("A"), "TA", "ATA"},
+                {Allele.NO_CALL, "A", "A"},
+                {Allele.create("AT"), "CGA", "ATCGA"},
+                {Allele.create("ATC"), "GA", "ATCGA"}
+        };
+    }
+
+    @Test(dataProvider = "getExtendTests")
+    public void testExtend(Allele toExtend, String extension, String expected) {
+        final Allele extended = Allele.extend(toExtend, extension.getBytes());
+        Assert.assertEquals(extended, Allele.create(expected));
+    }
+
+    @DataProvider
+    public Object[][] getTestCasesForCheckingSymbolicAlleles(){
+        return new Object[][]{
+                //allele, isSymbolic, isBreakpoint, isSingleBreakend
+                {"<DEL>",               true, false, false},
+                {"G]17:198982]",        true, true, false},
+                {"]13:123456]T",        true, true, false},
+                {"AAAAAA[chr1:1234[",   true, true, false},
+                {"AAAAAA]chr1:1234]",   true, true, false},
+                {"A.",                  true, false, true},
+                {".A",                  true, false, true},
+                {"AA",                  false, false, false},
+                {"A",                   false, false, false}
+        };
+    }
+
+    @Test(dataProvider = "getTestCasesForCheckingSymbolicAlleles")
+    public void testWouldBeSymbolic(String baseString, boolean isSymbolic, boolean isBreakpoint, boolean isBreakend) {
+        Assert.assertEquals(Allele.wouldBeSymbolicAllele(baseString.getBytes()), isSymbolic);
+    }
+
+    @Test(dataProvider = "getTestCasesForCheckingSymbolicAlleles")
+    public void testWouldBeBreakpoint(String baseString, boolean isSymbolic, boolean isBreakpoint, boolean isBreakend) {
+        Assert.assertEquals(Allele.wouldBeBreakpoint(baseString.getBytes()), isBreakpoint);
+    }
+
+    @Test(dataProvider = "getTestCasesForCheckingSymbolicAlleles")
+    public void testWouldBeBreakend(String baseString, boolean isSymbolic, boolean isBreakpoint, boolean isBreakend) {
+        Assert.assertEquals(Allele.wouldBeSingleBreakend(baseString.getBytes()), isBreakend);
     }
 }

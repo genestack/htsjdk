@@ -79,6 +79,7 @@ public class VariantContextBuilder {
     private Set<String> filters = null;
     private Map<String, Object> attributes = null;
     private boolean attributesCanBeModified = false;
+    private boolean filtersCanBeModified = false;
 
     /** enum of what must be validated */
     final private EnumSet<VariantContext.Validation> toValidate = EnumSet.noneOf(VariantContext.Validation.class);
@@ -105,18 +106,74 @@ public class VariantContextBuilder {
     }
 
     /**
+     * Getter for contig
+     * @return the current contig
+     */
+    public String getContig() {
+        return contig;
+    }
+
+    /**
+     * Getter for start position
+     * @return the current start position
+     */
+    public long getStart() {
+        return start;
+    }
+
+    /**
+     * Getter for stop position
+     * @return the current stop position
+     */
+    public long getStop() {
+        return stop;
+    }
+
+    /**
+     * Getter for id of variant
+     * @return the current variant id
+     */
+    public String getID() {
+        return ID;
+    }
+
+    /**
+     * Getter for genotypes (DANGEROUS!!! DOES NOT MAKE A COPY!!!)
+     * @return the current GenotypeContext
+     */
+    public GenotypesContext getGenotypes() {
+        return genotypes;
+    }
+
+    /**
+     * Getter for filters (DANGEROUS!!! DOES NOT MAKE A COPY!!!)
+     * @return the current set of filters
+     */
+    public Set<String> getFilters() {
+        return filters;
+    }
+
+    /**
+     * Getter for attributes (DANGEROUS!!! DOES NOT MAKE A COPY!!!)
+     * @return the current map of attributes
+     */
+    public Map<String, Object> getAttributes() {
+        return attributes;
+    }
+
+    /**
      * Returns a new builder based on parent -- the new VC will have all fields initialized
      * to their corresponding values in parent.  This is the best way to create a derived VariantContext
      *
      * @param parent  Cannot be null
      */
     public VariantContextBuilder(final VariantContext parent) {
-        if ( parent == null ) throw new IllegalArgumentException("BUG: VariantContextBuilder parent argument cannot be null in VariantContextBuilder");
+        if (parent == null) {
+            throw new IllegalArgumentException("BUG: VariantContextBuilder parent argument cannot be null in VariantContextBuilder");
+        }
         this.alleles = parent.getAlleles();
-        this.attributes = parent.getAttributes();
-        this.attributesCanBeModified = false;
         this.contig = parent.getContig();
-        this.filters = parent.getFiltersMaybeNull();
+
         this.genotypes = parent.getGenotypes();
         this.ID = parent.getID();
         this.log10PError = parent.getLog10PError();
@@ -124,12 +181,22 @@ public class VariantContextBuilder {
         this.start = parent.getStart();
         this.stop = parent.getEnd();
         this.fullyDecoded = parent.isFullyDecoded();
+
+        this.attributes(parent.getAttributes());
+        if (parent.filtersWereApplied()) {
+            this.filters(parent.getFilters());
+        } else {
+            this.unfiltered();
+        }
     }
 
     public VariantContextBuilder(final VariantContextBuilder parent) {
         if ( parent == null ) throw new IllegalArgumentException("BUG: VariantContext parent argument cannot be null in VariantContextBuilder");
-        this.alleles = parent.alleles;
+
         this.attributesCanBeModified = false;
+        this.filtersCanBeModified = false;
+
+        this.alleles = parent.alleles;
         this.contig = parent.contig;
         this.genotypes = parent.genotypes;
         this.ID = parent.ID;
@@ -150,7 +217,7 @@ public class VariantContextBuilder {
     /**
      * Tells this builder to use this collection of alleles for the resulting VariantContext
      *
-     * @param alleles
+     * @param alleles a Collection of alleles to set as the alleles of this builder
      * @return this builder
      */
     public VariantContextBuilder alleles(final Collection<Allele> alleles) {
@@ -160,7 +227,7 @@ public class VariantContextBuilder {
     }
 
     public VariantContextBuilder alleles(final List<String> alleleStrings) {
-        final List<Allele> alleles = new ArrayList<Allele>(alleleStrings.size());
+        final List<Allele> alleles = new ArrayList<>(alleleStrings.size());
 
         for ( int i = 0; i < alleleStrings.size(); i++ ) {
             alleles.add(Allele.create(alleleStrings.get(i), i == 0));
@@ -174,7 +241,7 @@ public class VariantContextBuilder {
     }
 
     public List<Allele> getAlleles() {
-        return new ArrayList<Allele>(alleles);
+        return new ArrayList<>(alleles);
     }
 
     /**
@@ -190,7 +257,7 @@ public class VariantContextBuilder {
      * Value for each attribute must be of a type that implements {@link Serializable} or else
      * serialization will fail.
      *
-     * @param attributes a Map of attributes to replace any existing attributes with
+     * @param attributes a Map of attributes to replace existing attributes with
      */
     public VariantContextBuilder attributes(final Map<String, ?> attributes) {
         this.attributes = new HashMap<>();
@@ -198,6 +265,32 @@ public class VariantContextBuilder {
         this.attributesCanBeModified = true;
         return this;
     }
+
+
+    /**
+     * Tells this builder to put this map of attributes into the resulting <code>VariantContext</code>. The
+     * contents of the Map are copied to the current Map (or a new one is created if null)
+     *
+     * After calling this routine the builder assumes it can modify the attributes
+     * object here, if subsequent calls are made to set attribute values
+     *
+     * Value for each attribute must be of a type that implements {@link Serializable} or else
+     * serialization will fail.
+     *
+     * @param attributes a Map of attributes to complement any existing attributes with, overwriting any that
+     *                   share the same key.
+     */
+    public VariantContextBuilder putAttributes(final Map<String, ?> attributes) {
+        if (this.attributes == null) {
+            this.attributes = new HashMap<>();
+        }
+        if (attributes != null) {
+            this.attributes.putAll(attributes);
+        }
+        this.attributesCanBeModified = true;
+        return this;
+    }
+
 
     /**
      * Puts the key -&gt; value mapping into this builder's attributes
@@ -215,7 +308,7 @@ public class VariantContextBuilder {
      * Removes key if present in the attributes
      *
      * @param key  key to remove
-     * @return
+     * @return this builder
      */
     public VariantContextBuilder rmAttribute(final String key) {
         makeAttributesModifiable();
@@ -227,7 +320,7 @@ public class VariantContextBuilder {
      * Removes list of keys if present in the attributes
      *
      * @param keys  list of keys to remove
-     * @return
+     * @return this builder
      */
     public VariantContextBuilder rmAttributes(final List<String> keys) {
         makeAttributesModifiable();
@@ -241,12 +334,28 @@ public class VariantContextBuilder {
      * collection, so methods that want to add / remove records require the attributes to be copied to a
      */
     private void makeAttributesModifiable() {
-        if ( ! attributesCanBeModified ) {
+        if (!attributesCanBeModified) {
             this.attributesCanBeModified = true;
-            if (attributes == null) {
-            	this.attributes = new HashMap<String, Object>();
+
+            final Map<String, Object> tempAttributes = attributes;
+            if (tempAttributes != null) {
+                this.attributes = new HashMap<>(tempAttributes);
             } else {
-            	this.attributes = new HashMap<String, Object>(attributes);
+                this.attributes = new HashMap<>();
+            }
+        }
+    }
+
+    /**
+     * Makes the filters modifiable.
+     */
+    private void makeFiltersModifiable() {
+        if (!filtersCanBeModified) {
+            this.filtersCanBeModified = true;
+            final Set<String> tempFilters = filters;
+            this.filters = new LinkedHashSet<>();
+            if (tempFilters != null) {
+                this.filters.addAll(tempFilters);
             }
         }
     }
@@ -255,26 +364,60 @@ public class VariantContextBuilder {
      * This builder's filters are set to this value
      *
      * filters can be <code>null</code> -&gt; meaning there are no filters
-     * @param filters
+     *
+     * @param filters Set of strings to set as the filters for this builder
+     *                This set will be copied so that external set can be
+     *                safely changed.
+     * @return this builder
      */
     public VariantContextBuilder filters(final Set<String> filters) {
-        this.filters = filters;
+        if (filters == null) {
+            unfiltered();
+        } else {
+            this.filtersCanBeModified = true;
+            filtersAsIs(new LinkedHashSet<>(filters));
+        }
         return this;
     }
 
     /**
+     * This builder's filters are set to this value
+     *
+     * filters can be <code>null</code> -&gt; meaning there are no filters
+     *
+     * @param filters Set of strings to set as the filters for this builder
+     * @return this builder
+     */
+    private void filtersAsIs(final Set<String> filters) {
+        this.filters = filters;
+        toValidate.add(VariantContext.Validation.FILTERS);
+    }
+
+
+    /**
      * {@link #filters}
      *
-     * @param filters
-     * @return
+     * @param filters  Strings to set as the filters for this builder
+     * @return this builder
      */
     public VariantContextBuilder filters(final String ... filters) {
-        filters(new LinkedHashSet<String>(Arrays.asList(filters)));
+        if(filters == null){
+            this.unfiltered();
+        } else {
+            this.filtersCanBeModified = true;
+            filtersAsIs(new LinkedHashSet<>(Arrays.asList(filters)));
+        }
         return this;
     }
 
+    /** Adds the given filter to the list of filters
+     *
+     * @param filter
+     * @return
+     */
     public VariantContextBuilder filter(final String filter) {
-        if ( this.filters == null ) this.filters = new LinkedHashSet<String>(1);
+        makeFiltersModifiable();
+
         this.filters.add(filter);
         return this;
     }
@@ -282,33 +425,40 @@ public class VariantContextBuilder {
     /**
      * Tells this builder that the resulting VariantContext should have PASS filters
      *
-     * @return
+     * @return this builder
      */
     public VariantContextBuilder passFilters() {
-        return filters(VariantContext.PASSES_FILTERS);
+        filtersAsIs(VariantContext.PASSES_FILTERS);
+        return this;
     }
 
     /**
      * Tells this builder that the resulting VariantContext be unfiltered
      *
-     * @return
+     * @return this builder
      */
     public VariantContextBuilder unfiltered() {
         this.filters = null;
+        this.filtersCanBeModified = false;
         return this;
     }
 
     /**
      * Tells this builder that the resulting <code>VariantContext</code> should use this genotype's <code>GenotypeContext</code>.
      *
+     * Note that this method will call the immutable method on the provided genotypes object
+     * to ensure that the user will not modify it further.
      * Note that genotypes can be <code>null</code> -&gt; meaning there are no genotypes
      *
-     * @param genotypes
+     * @param genotypes GenotypeContext to use in this builder
+     * @return this builder
      */
     public VariantContextBuilder genotypes(final GenotypesContext genotypes) {
         this.genotypes = genotypes;
-        if ( genotypes != null )
+        if (genotypes != null) {
+            genotypes.immutable();
             toValidate.add(VariantContext.Validation.GENOTYPES);
+        }
         return this;
     }
 
@@ -322,7 +472,7 @@ public class VariantContextBuilder {
      *
      * Note that genotypes can be <code>null</code>, meaning there are no genotypes
      *
-     * @param genotypes
+     * @param genotypes Collection of genotypes to set as genotypes for this builder
      */
     public VariantContextBuilder genotypes(final Collection<Genotype> genotypes) {
         return genotypes(GenotypesContext.copy(genotypes));
@@ -330,7 +480,7 @@ public class VariantContextBuilder {
 
     /**
      * Tells this builder that the resulting <code>VariantContext</code> should use a <code>GenotypeContext</code> containing genotypes
-     * @param genotypes
+     * @param genotypes genotypes to set as genotypes for this builder
      */
     public VariantContextBuilder genotypes(final Genotype ... genotypes) {
         return genotypes(GenotypesContext.copy(Arrays.asList(genotypes)));
@@ -346,8 +496,8 @@ public class VariantContextBuilder {
 
     /**
      * Tells us that the resulting VariantContext should have ID
-     * @param ID
-     * @return
+     * @param ID id of variant
+     * @return this builder
      */
     public VariantContextBuilder id(final String ID) {
         this.ID = ID;
@@ -356,7 +506,7 @@ public class VariantContextBuilder {
 
     /**
      * Tells us that the resulting VariantContext should not have an ID
-     * @return
+     * @return this builder
      */
     public VariantContextBuilder noID() {
         return id(VCFConstants.EMPTY_ID_FIELD);
@@ -364,8 +514,8 @@ public class VariantContextBuilder {
 
     /**
      * Tells us that the resulting VariantContext should have log10PError
-     * @param log10PError
-     * @return
+     * @param log10PError value of QUAL field for this builder
+     * @return this builder
      */
     public VariantContextBuilder log10PError(final double log10PError) {
         this.log10PError = log10PError;
@@ -374,8 +524,8 @@ public class VariantContextBuilder {
 
     /**
      * Tells us that the resulting VariantContext should have source field set to source
-     * @param source
-     * @return
+     * @param source string describing the source of the variant
+     * @return this builder
      */
     public VariantContextBuilder source(final String source) {
         this.source = source;
@@ -384,10 +534,10 @@ public class VariantContextBuilder {
 
     /**
      * Tells us that the resulting VariantContext should have the specified location
-     * @param contig
-     * @param start
-     * @param stop
-     * @return
+     * @param contig the contig the variant is on (must be in the dictionary)
+     * @param start the start position of the variant
+     * @param stop the end position of the variant
+     * @return this builder
      */
     public VariantContextBuilder loc(final String contig, final long start, final long stop) {
         this.contig = contig;
@@ -399,8 +549,8 @@ public class VariantContextBuilder {
 
     /**
      * Tells us that the resulting VariantContext should have the specified contig chr
-     * @param contig
-     * @return
+     * @param contig the contig of the variant
+     * @return this builder
      */
     public VariantContextBuilder chr(final String contig) {
         this.contig = contig;
@@ -409,8 +559,8 @@ public class VariantContextBuilder {
 
     /**
      * Tells us that the resulting VariantContext should have the specified contig start
-     * @param start
-     * @return
+     * @param start the start position of the variant
+     * @return this builder
      */
     public VariantContextBuilder start(final long start) {
         this.start = start;
@@ -420,8 +570,8 @@ public class VariantContextBuilder {
 
     /**
      * Tells us that the resulting VariantContext should have the specified contig stop
-     * @param stop
-     * @return
+     * @param stop the stop position of the variant
+     * @return this builder
      */
     public VariantContextBuilder stop(final long stop) {
         this.stop = stop;
@@ -489,7 +639,10 @@ public class VariantContextBuilder {
     }
 
     public VariantContext make(final boolean leaveModifyableAsIs) {
-        if(!leaveModifyableAsIs) attributesCanBeModified = false;
+        if (!leaveModifyableAsIs) {
+            attributesCanBeModified = false;
+            filtersCanBeModified = false;
+        }
 
         return new VariantContext(source, ID, contig, start, stop, alleles,
                 genotypes, log10PError, filters, attributes,

@@ -18,6 +18,7 @@
 
 package htsjdk.tribble.index.interval;
 
+import htsjdk.samtools.util.IOUtil;
 import htsjdk.tribble.Feature;
 import htsjdk.tribble.index.Block;
 import htsjdk.tribble.index.Index;
@@ -25,6 +26,7 @@ import htsjdk.tribble.index.TribbleIndexCreator;
 import htsjdk.tribble.index.interval.IntervalTreeIndex.ChrIndex;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedList;
 
@@ -34,7 +36,7 @@ import java.util.LinkedList;
  */
 public class IntervalIndexCreator extends TribbleIndexCreator {
 
-    public static int DEFAULT_FEATURE_COUNT = 600;
+    public static final int DEFAULT_FEATURE_COUNT = 600;
 
     /**
      * Maximum number of features stored per interval.
@@ -51,26 +53,35 @@ public class IntervalIndexCreator extends TribbleIndexCreator {
 
     private final ArrayList<MutableInterval> intervals = new ArrayList<MutableInterval>();
 
-    File inputFile;
+    Path inputPath;
 
-    public IntervalIndexCreator(final File inputFile, final int featuresPerInterval) {
-        this.inputFile = inputFile;
+    public IntervalIndexCreator(final Path inputPath, final int featuresPerInterval) {
+        this.inputPath = inputPath;
         this.featuresPerInterval = featuresPerInterval;
     }
 
-    public IntervalIndexCreator(final File inputFile) {
-        this(inputFile, DEFAULT_FEATURE_COUNT);
+    public IntervalIndexCreator(final File inputFile, final int featuresPerInterval) {
+        this(IOUtil.toPath(inputFile), featuresPerInterval);
     }
 
+    public IntervalIndexCreator(final File inputFile) {
+        this(IOUtil.toPath(inputFile));
+    }
+
+    public IntervalIndexCreator(final Path inputPath) {
+        this(inputPath, DEFAULT_FEATURE_COUNT);
+    }
+
+    @Override
     public void addFeature(final Feature feature, final long filePosition) {
         // if we don't have a chrIndex yet, or if the last one was for the previous contig, create a new one
-        if (chrList.isEmpty() || !chrList.getLast().getName().equals(feature.getChr())) {
+        if (chrList.isEmpty() || !chrList.getLast().getName().equals(feature.getContig())) {
             // if we're creating a new chrIndex (not the first), make sure to dump the intervals to the old chrIndex
             if (!chrList.isEmpty())
                 addIntervalsToLastChr(filePosition);
 
             // create a new chr index for the current contig
-            chrList.add(new ChrIndex(feature.getChr()));
+            chrList.add(new ChrIndex(feature.getContig()));
             intervals.clear();
         }
 
@@ -105,8 +116,9 @@ public class IntervalIndexCreator extends TribbleIndexCreator {
      * @param finalFilePosition the final file position, for indexes that have to close out with the final position
      * @return a Tree Index
      */
+    @Override
     public Index finalizeIndex(final long finalFilePosition) {
-        final IntervalTreeIndex featureIndex = new IntervalTreeIndex(inputFile.getAbsolutePath());
+        final IntervalTreeIndex featureIndex = new IntervalTreeIndex(inputPath);
         // dump the remaining bins to the index
         addIntervalsToLastChr(finalFilePosition);
         featureIndex.setChrIndex(chrList);

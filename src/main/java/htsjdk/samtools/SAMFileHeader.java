@@ -24,19 +24,13 @@
 package htsjdk.samtools;
 
 
-import htsjdk.samtools.util.StringLineReader;
+import htsjdk.samtools.util.BufferedLineReader;
+import htsjdk.samtools.util.CollectionUtil;
+import htsjdk.samtools.util.Log;
 
 import java.io.StringWriter;
-import java.lang.reflect.Constructor;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import java.util.function.Supplier;
 
 /**
  * Header information from a SAM or BAM file.
@@ -46,16 +40,20 @@ public class SAMFileHeader extends AbstractSAMHeaderRecord
     public static final String VERSION_TAG = "VN";
     public static final String SORT_ORDER_TAG = "SO";
     public static final String GROUP_ORDER_TAG = "GO";
-    public static final String CURRENT_VERSION = "1.5";
-    public static final Set<String> ACCEPTABLE_VERSIONS =
-            new HashSet<String>(Arrays.asList("1.0", "1.3", "1.4", "1.5"));
+    public static final String CURRENT_VERSION = "1.6";
+    public static final Set<String> ACCEPTABLE_VERSIONS = CollectionUtil.makeSet("1.0", "1.3", "1.4", "1.5", CURRENT_VERSION );
 
+    private SortOrder sortOrder = null;
+    private GroupOrder groupOrder = null;
+
+    private static final Log log = Log.getInstance(SAMFileHeader.class);
     /**
      * These tags are of known type, so don't need a type field in the text representation.
      */
     public static final Set<String> STANDARD_TAGS =
-            new HashSet<String>(Arrays.asList(VERSION_TAG, SORT_ORDER_TAG, GROUP_ORDER_TAG));
+            new HashSet<>(Arrays.asList(VERSION_TAG, SORT_ORDER_TAG, GROUP_ORDER_TAG));
 
+    @Override
     Set<String> getStandardTags() {
         return STANDARD_TAGS;
     }
@@ -64,40 +62,32 @@ public class SAMFileHeader extends AbstractSAMHeaderRecord
      * Ways in which a SAM or BAM may be sorted.
      */
     public enum SortOrder {
+        unsorted(() -> null),
+        queryname(SAMRecordQueryNameComparator::new),
+        coordinate(SAMRecordCoordinateComparator::new),
+        duplicate(SAMRecordDuplicateComparator::new), // NB: this is not in the SAM spec!
+        unknown(() -> null);
 
-        unsorted(null),
-        queryname(SAMRecordQueryNameComparator.class),
-        coordinate(SAMRecordCoordinateComparator.class),
-        duplicate(SAMRecordDuplicateComparator.class); // NB: this is not in the SAM spec!
+        private final Supplier<SAMRecordComparator> comparatorSupplier;
 
-        private final Class<? extends SAMRecordComparator> comparator;
-
-        SortOrder(final Class<? extends SAMRecordComparator> comparatorClass) {
-            this.comparator = comparatorClass;
+        SortOrder(final Supplier<SAMRecordComparator> comparatorClass) {
+            this.comparatorSupplier = comparatorClass;
         }
 
         /**
          * @return Comparator class to sort in the specified order, or null if unsorted.
+         * @deprecated since 7/2018, use {@link #getComparatorInstance()} with {@link SAMSortOrderChecker#getClass()} instead
          */
+        @Deprecated
         public Class<? extends SAMRecordComparator> getComparator() {
-            return comparator;
+            return comparatorSupplier.get().getClass();
         }
 
         /**
          * @return Comparator to sort in the specified order, or null if unsorted.
          */
         public SAMRecordComparator getComparatorInstance() {
-            if (comparator != null) {
-                try {
-                    final Constructor<? extends SAMRecordComparator> ctor = comparator.getConstructor();
-                    return ctor.newInstance();
-                }
-                catch (Exception e) {
-                    throw new IllegalStateException("Could not instantiate a comparator for sort order: " +
-                            this.name(), e);
-                }
-            }
-            return null;
+            return comparatorSupplier.get();
         }
     }
 
@@ -105,16 +95,13 @@ public class SAMFileHeader extends AbstractSAMHeaderRecord
         none, query, reference
     }
 
-    private List<SAMReadGroupRecord> mReadGroups =
-        new ArrayList<SAMReadGroupRecord>();
-    private List<SAMProgramRecord> mProgramRecords = new ArrayList<SAMProgramRecord>();
-    private final Map<String, SAMReadGroupRecord> mReadGroupMap =
-        new HashMap<String, SAMReadGroupRecord>();
-    private final Map<String, SAMProgramRecord> mProgramRecordMap = new HashMap<String, SAMProgramRecord>();
+    private List<SAMReadGroupRecord> mReadGroups = new ArrayList<>();
+    private List<SAMProgramRecord> mProgramRecords = new ArrayList<>();
+    private final Map<String, SAMReadGroupRecord> mReadGroupMap = new HashMap<>();
+    private final Map<String, SAMProgramRecord> mProgramRecordMap = new HashMap<>();
     private SAMSequenceDictionary mSequenceDictionary = new SAMSequenceDictionary();
-    final private List<String> mComments = new ArrayList<String>();
-    private String textHeader;
-    private final List<SAMValidationError> mValidationErrors = new ArrayList<SAMValidationError>();
+    final private List<String> mComments = new ArrayList<>();
+    private final List<SAMValidationError> mValidationErrors = new ArrayList<>();
 
     public SAMFileHeader() {
         setAttribute(VERSION_TAG, CURRENT_VERSION);
@@ -127,11 +114,11 @@ public class SAMFileHeader extends AbstractSAMHeaderRecord
     }
 
     public String getVersion() {
-        return (String) getAttribute("VN");
+        return getAttribute(VERSION_TAG);
     }
 
     public String getCreator() {
-        return (String) getAttribute("CR");
+        return getAttribute("CR");
     }
 
     public SAMSequenceDictionary getSequenceDictionary() {
@@ -144,9 +131,11 @@ public class SAMFileHeader extends AbstractSAMHeaderRecord
 
     /**
      * Look up sequence record by name.
+     * @return sequence record if it's found by name,
+     * or null if sequence dictionary is empty or if the sequence is not found in the dictionary.
      */
     public SAMSequenceRecord getSequence(final String name) {
-        return mSequenceDictionary.getSequence(name);
+        return mSequenceDictionary == null ? null : mSequenceDictionary.getSequence(name);
     }
 
     /**
@@ -248,46 +237,95 @@ public class SAMFileHeader extends AbstractSAMHeaderRecord
     }
 
     public SortOrder getSortOrder() {
-        final String so = getAttribute("SO");
-        if (so == null || so.equals("unknown")) {
-            return SortOrder.unsorted;
+        if (sortOrder == null) {
+            final String so = getAttribute(SORT_ORDER_TAG);
+            if (so == null) {
+                sortOrder = SortOrder.unsorted;
+            } else {
+                try {
+                    return SortOrder.valueOf(so);
+                } catch (IllegalArgumentException e) {
+                    log.warn("Found non-conforming header SO tag: " + so + ". Treating as 'unknown'.");
+                    sortOrder = SortOrder.unknown;
+                }
+            }
         }
-        return SortOrder.valueOf((String) so);
+        return sortOrder;
     }
 
     public void setSortOrder(final SortOrder so) {
-        setAttribute("SO", so.name());
+        sortOrder = so;
+        super.setAttribute(SORT_ORDER_TAG, so.name());
     }
 
     public GroupOrder getGroupOrder() {
-        if (getAttribute("GO") == null) {
-            return GroupOrder.none;
+        if (groupOrder == null) {
+            final String go = getAttribute(GROUP_ORDER_TAG);
+            if (go == null) {
+                groupOrder = GroupOrder.none;
+            } else {
+                try {
+                    return GroupOrder.valueOf(go);
+                } catch (IllegalArgumentException e) {
+                    log.warn("Found non conforming header GO tag: " + go + ". Treating as 'none'.");
+                    groupOrder = GroupOrder.none;
+                }
+            }
         }
-        return GroupOrder.valueOf((String)getAttribute("GO"));
+        return groupOrder;
     }
 
     public void setGroupOrder(final GroupOrder go) {
-        setAttribute("GO", go.name());
+        groupOrder = go;
+        super.setAttribute(GROUP_ORDER_TAG, go.name());
+    }
+
+
+    /**
+     * Set the given value for the attribute named 'key'.  Replaces an existing value, if any.
+     * If value is null, the attribute is removed.
+     * Otherwise, the value will be converted to a String with toString.
+     * @param key attribute name
+     * @param value attribute value
+     * @deprecated Use {@link #setAttribute(String, String) instead
+     */
+    @Deprecated
+    @Override
+    public void setAttribute(final String key, final Object value) {
+        if (key.equals(SORT_ORDER_TAG) || key.equals(GROUP_ORDER_TAG)) {
+            this.setAttribute(key, value.toString());
+        } else {
+            super.setAttribute(key, value);
+        }
     }
 
     /**
-     * If this SAMHeader was read from a file, this property contains the header
-     * as it appeared in the file, otherwise it is null.  Note that this is not a toString()
-     * operation.  Changes to the SAMFileHeader object after reading from the file are not reflected in this value.
-     *
-     * In addition this value is only set if one of the following is true:
-     *   - The size of the header is < 1,048,576 characters (1MB ascii, 2MB unicode)
-     *   - There are either validation or parsing errors associated with the header
-     *
-     * Invalid header lines may appear in value but are not stored in the SAMFileHeader object.
+     * Set the given value for the attribute named 'key'.  Replaces an existing value, if any.
+     * If value is null, the attribute is removed.
+     * @param key attribute name
+     * @param value attribute value
      */
-    public String getTextHeader() {
-        return textHeader;
+    @Override
+    public void setAttribute(final String key, final String value) {
+        String tempVal = value;
+        if (key.equals(SORT_ORDER_TAG)) {
+            this.sortOrder = null;
+            try {
+                tempVal = SortOrder.valueOf(value).toString();
+            } catch (IllegalArgumentException e) {
+                tempVal = SortOrder.unknown.toString();
+            }
+        } else if (key.equals(GROUP_ORDER_TAG)) {
+            this.groupOrder = null;
+        }
+        super.setAttribute(key, tempVal);
     }
 
-    public void setTextHeader(final String textHeader) {
-        this.textHeader = textHeader;
-    }
+    /** @deprecated since May 1st 2019 - text version of header is no longer stored. */
+    @Deprecated public String getTextHeader() {  return null; }
+
+    /** @deprecated since May 1st 2019 - text version of header is no longer stored. */
+    @Deprecated public void setTextHeader(final String textHeader) { }
 
     public List<String> getComments() {
         return Collections.unmodifiableList(mComments);
@@ -353,19 +391,25 @@ public class SAMFileHeader extends AbstractSAMHeaderRecord
         return result;
     }
 
+    @Override
     public final SAMFileHeader clone() {
         final SAMTextHeaderCodec codec = new SAMTextHeaderCodec();
         codec.setValidationStringency(ValidationStringency.SILENT);
+        return codec.decode(BufferedLineReader.fromString(getSAMString()), "SAMFileHeader.clone");
+    }
+
+    @Override
+    public String getSAMString() {
         final StringWriter stringWriter = new StringWriter();
-        codec.encode(stringWriter, this);
-        return codec.decode(new StringLineReader(stringWriter.toString()), "SAMFileHeader.clone");
+        new SAMTextHeaderCodec().encode(stringWriter, this);
+        return stringWriter.toString();
     }
 
     /** Little class to generate program group IDs */
     public static class PgIdGenerator {
         private int recordCounter;
 
-        private final Set<String> idsThatAreAlreadyTaken = new HashSet<String>();
+        private final Set<String> idsThatAreAlreadyTaken = new HashSet<>();
 
         public PgIdGenerator(final SAMFileHeader header) {
             for (final SAMProgramRecord pgRecord : header.getProgramRecords()) {
@@ -393,7 +437,6 @@ public class SAMFileHeader extends AbstractSAMHeaderRecord
                 idsThatAreAlreadyTaken.add(newId);
                 return newId;
             }
-
         }
     }
 }

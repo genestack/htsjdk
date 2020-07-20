@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright 2013 EMBL-EBI
+ * Copyright 2013-2016 EMBL-EBI
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,213 +16,148 @@
 package htsjdk.samtools;
 
 import htsjdk.samtools.SAMFileHeader.SortOrder;
-import htsjdk.samtools.cram.build.ContainerParser;
-import htsjdk.samtools.cram.build.Cram2SamRecordFactory;
+import htsjdk.samtools.cram.build.CRAMReferenceRegion;
 import htsjdk.samtools.cram.build.CramContainerIterator;
-import htsjdk.samtools.cram.build.CramNormalizer;
 import htsjdk.samtools.cram.build.CramSpanContainerIterator;
 import htsjdk.samtools.cram.io.CountingInputStream;
 import htsjdk.samtools.cram.ref.CRAMReferenceSource;
-import htsjdk.samtools.cram.structure.Container;
-import htsjdk.samtools.cram.structure.ContainerIO;
-import htsjdk.samtools.cram.structure.CramCompressionRecord;
-import htsjdk.samtools.cram.structure.CramHeader;
-import htsjdk.samtools.cram.structure.Slice;
+import htsjdk.samtools.cram.structure.*;
 import htsjdk.samtools.seekablestream.SeekableStream;
-import htsjdk.samtools.util.Log;
 
-import java.io.IOException;
+import java.io.Closeable;
 import java.io.InputStream;
-import java.math.BigInteger;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
+import java.util.*;
 
-import htsjdk.samtools.cram.CRAMException;
+import htsjdk.samtools.util.RuntimeIOException;
 
-public class CRAMIterator implements SAMRecordIterator {
-    private static final Log log = Log.getInstance(CRAMIterator.class);
+public class CRAMIterator implements SAMRecordIterator, Closeable {
     private final CountingInputStream countingInputStream;
-    private CramHeader cramHeader;
-    private ArrayList<SAMRecord> records;
-    private SAMRecord nextRecord = null;
-    private CramNormalizer normalizer;
-    private byte[] refs;
-    private int prevSeqId = SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX;
-    public Container container;
+    private final CramContainerIterator containerIterator;
+    private final CramHeader cramHeader;
+    private final SAMFileHeader samFileHeader;
+    private final CRAMReferenceRegion cramReferenceState;
+    private final QueryInterval[] queryIntervals;
+
+    private ValidationStringency validationStringency;
+    private List<SAMRecord> samRecords;
+    private Container container;
     private SamReader mReader;
-    long firstContainerOffset = 0;
-    private Iterator<Container> containerIterator;
+    private final long firstContainerOffset;
 
-    private ContainerParser parser;
-    private final CRAMReferenceSource referenceSource;
+    // Keep a cache of re-usable compressor instances to reduce the need to repeatedly reallocate
+    // large numbers of small temporary objects, especially for the RANS compressor, which
+    // allocates ~256k small objects every time its instantiated.
+    private final CompressorCache compressorCache = new CompressorCache();
 
-    private Iterator<SAMRecord> iterator = Collections.<SAMRecord>emptyList().iterator();
-
-    private ValidationStringency validationStringency = ValidationStringency.DEFAULT_STRINGENCY;
-
-    public ValidationStringency getValidationStringency() {
-        return validationStringency;
-    }
-
-    public void setValidationStringency(
-            final ValidationStringency validationStringency) {
-        this.validationStringency = validationStringency;
-    }
-
+    /**
+     * `samRecordIndex` only used when validation is not `SILENT`
+     * (for identification by the validator which records are invalid)
+     */
     private long samRecordIndex;
-    private ArrayList<CramCompressionRecord> cramRecords;
+    private Iterator<SAMRecord> samRecordIterator = Collections.EMPTY_LIST.iterator();
 
-    public CRAMIterator(final InputStream inputStream, final CRAMReferenceSource referenceSource, final ValidationStringency validationStringency)
-            throws IOException {
-        if (null == referenceSource) {
-            throw new CRAMException("A reference source is required for CRAM files");
-        }
+    public CRAMIterator(final InputStream inputStream,
+                        final CRAMReferenceSource referenceSource,
+                        final ValidationStringency validationStringency) {
         this.countingInputStream = new CountingInputStream(inputStream);
-        this.referenceSource = referenceSource;
-        this.validationStringency = validationStringency;
-        final CramContainerIterator containerIterator = new CramContainerIterator(this.countingInputStream);
-        cramHeader = containerIterator.getCramHeader();
-        this.containerIterator = containerIterator;
+        this.containerIterator = new CramContainerIterator(this.countingInputStream);
 
+        this.validationStringency = validationStringency;
+        samFileHeader = containerIterator.getSamFileHeader();
+        cramReferenceState = new CRAMReferenceRegion(referenceSource, samFileHeader);
+        cramHeader = containerIterator.getCramHeader();
         firstContainerOffset = this.countingInputStream.getCount();
-        records = new ArrayList<SAMRecord>(10000);
-        normalizer = new CramNormalizer(cramHeader.getSamFileHeader(),
-                referenceSource);
-        parser = new ContainerParser(cramHeader.getSamFileHeader());
+        samRecords = new ArrayList<>(new CRAMEncodingStrategy().getReadsPerSlice());
+        this.queryIntervals = null;
     }
 
-    public CRAMIterator(final SeekableStream seekableStream, final CRAMReferenceSource referenceSource, final long[] coordinates, final ValidationStringency validationStringency)
-            throws IOException {
-        if (null == referenceSource) {
-            throw new CRAMException("A reference source is required for CRAM files");
-        }
+    public CRAMIterator(final SeekableStream seekableStream,
+                        final CRAMReferenceSource referenceSource,
+                        final ValidationStringency validationStringency,
+                        final QueryInterval[] queryIntervals,
+                        final long[] coordinates) {
         this.countingInputStream = new CountingInputStream(seekableStream);
-        this.referenceSource = referenceSource;
+        this.containerIterator = CramSpanContainerIterator.fromFileSpan(seekableStream, coordinates);
+
         this.validationStringency = validationStringency;
-        final CramSpanContainerIterator containerIterator = CramSpanContainerIterator.fromFileSpan(seekableStream, coordinates);
+        samFileHeader = containerIterator.getSamFileHeader();
+        cramReferenceState = new CRAMReferenceRegion(referenceSource, samFileHeader);
         cramHeader = containerIterator.getCramHeader();
-        this.containerIterator = containerIterator;
-
-        firstContainerOffset = containerIterator.getFirstContainerOffset();
-        records = new ArrayList<SAMRecord>(10000);
-        normalizer = new CramNormalizer(cramHeader.getSamFileHeader(),
-                referenceSource);
-        parser = new ContainerParser(cramHeader.getSamFileHeader());
+        firstContainerOffset = this.countingInputStream.getCount();
+        samRecords = new ArrayList<>(new CRAMEncodingStrategy().getReadsPerSlice());
+        this.queryIntervals = queryIntervals;
     }
 
-    @Deprecated
-    public CRAMIterator(final SeekableStream seekableStream, final CRAMReferenceSource referenceSource, final long[] coordinates)
-            throws IOException {
-        this(seekableStream, referenceSource, coordinates, ValidationStringency.DEFAULT_STRINGENCY);
-    }
-
-    public CramHeader getCramHeader() {
-        return cramHeader;
-    }
-
-    void nextContainer() throws IOException, IllegalArgumentException,
-            IllegalAccessException, CRAMException {
-
+    private BAMIteratorFilter.FilteringIteratorState nextContainer() {
         if (containerIterator != null) {
             if (!containerIterator.hasNext()) {
-                records.clear();
-                nextRecord = null;
-                return;
+                samRecords.clear();
+                return BAMIteratorFilter.FilteringIteratorState.STOP_ITERATION;
             }
             container = containerIterator.next();
             if (container.isEOF()) {
-                records.clear();
-                nextRecord = null;
-                return;
+                samRecords.clear();
+                return BAMIteratorFilter.FilteringIteratorState.STOP_ITERATION;
             }
         } else {
-            container = ContainerIO.readContainer(cramHeader.getVersion(), countingInputStream);
+            final long containerByteOffset = countingInputStream.getCount();
+            container = new Container(cramHeader.getCRAMVersion(), countingInputStream, containerByteOffset);
             if (container.isEOF()) {
-                records.clear();
-                nextRecord = null;
-                return;
+                samRecords.clear();
+                return BAMIteratorFilter.FilteringIteratorState.STOP_ITERATION;
             }
         }
 
-        if (records == null)
-            records = new ArrayList<SAMRecord>(container.nofRecords);
-        else
-            records.clear();
-        if (cramRecords == null)
-            cramRecords = new ArrayList<CramCompressionRecord>(container.nofRecords);
-        else
-            cramRecords.clear();
-
-        parser.getRecords(container, cramRecords, validationStringency);
-
-        if (container.sequenceId == SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX) {
-            refs = new byte[]{};
-            prevSeqId = SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX;
-        } else if (container.sequenceId == Slice.MULTI_REFERENCE) {
-            refs = null;
-            prevSeqId = Slice.MULTI_REFERENCE;
-        } else if (prevSeqId < 0 || prevSeqId != container.sequenceId) {
-            final SAMSequenceRecord sequence = cramHeader.getSamFileHeader()
-                    .getSequence(container.sequenceId);
-            refs = referenceSource.getReferenceBases(sequence, true);
-            if (refs == null) {
-                throw new CRAMException(String.format("Contig %s not found in the reference file.", sequence.getSequenceName()));
-            }
-            prevSeqId = container.sequenceId;
+        if (containerMatchesQuery(container)) {
+            samRecords = container.getSAMRecords(
+                    validationStringency,
+                    cramReferenceState,
+                    compressorCache,
+                    getSAMFileHeader());
+            samRecordIterator = samRecords.iterator();
+            return BAMIteratorFilter.FilteringIteratorState.MATCHES_FILTER;
+        } else {
+            return BAMIteratorFilter.FilteringIteratorState.CONTINUE_ITERATION;
         }
-
-        for (int i = 0; i < container.slices.length; i++) {
-            final Slice slice = container.slices[i];
-            if (slice.sequenceId < 0)
-                continue;
-            if (!slice.validateRefMD5(refs)) {
-                final String msg = String.format(
-                        "Reference sequence MD5 mismatch for slice: sequence id %d, start %d, span %d, expected MD5 %s",
-                            slice.sequenceId,
-                            slice.alignmentStart,
-                            slice.alignmentSpan,
-                            String.format("%032x", new BigInteger(1, slice.refMD5)));
-                throw new CRAMException(msg);
-            }
-        }
-
-        normalizer.normalize(cramRecords, refs, 0,
-                container.header.substitutionMatrix);
-
-        final Cram2SamRecordFactory cramToSamRecordFactory = new Cram2SamRecordFactory(
-                cramHeader.getSamFileHeader());
-
-        for (final CramCompressionRecord cramRecord : cramRecords) {
-            final SAMRecord samRecord = cramToSamRecordFactory.create(cramRecord);
-            if (!cramRecord.isSegmentUnmapped()) {
-                final SAMSequenceRecord sequence = cramHeader.getSamFileHeader()
-                        .getSequence(cramRecord.sequenceId);
-                refs = referenceSource.getReferenceBases(sequence, true);
-            }
-
-            samRecord.setValidationStringency(validationStringency);
-
-            if (validationStringency != ValidationStringency.SILENT) {
-                final List<SAMValidationError> validationErrors = samRecord.isValid();
-                SAMUtils.processValidationErrors(validationErrors,
-                        samRecordIndex, validationStringency);
-            }
-
-            if (mReader != null) {
-                final long chunkStart = (container.offset << 16) | cramRecord.sliceIndex;
-                final long chunkEnd = ((container.offset << 16) | cramRecord.sliceIndex) + 1;
-                nextRecord.setFileSource(new SAMFileSource(mReader,
-                        new BAMFileSpan(new Chunk(chunkStart, chunkEnd))));
-            }
-
-            records.add(samRecord);
-            samRecordIndex++;
-        }
-        cramRecords.clear();
-        iterator = records.iterator();
     }
+
+    private boolean containerMatchesQuery(final Container container) {
+        if (queryIntervals == null) {
+            return true;
+        } else {
+            // binary search our query intervals to see if the alignment span of this container
+            // overlaps any query - it doesn't matter which one, we only care whether or not there is a match
+            final AlignmentContext alignmentContext = container.getAlignmentContext();
+            return (!alignmentContext.getReferenceContext().isMappedSingleRef() ||
+                Arrays.binarySearch(
+                    queryIntervals,
+                    new QueryInterval(
+                            alignmentContext.getReferenceContext().getReferenceContextID(),
+                            alignmentContext.getAlignmentStart(),
+                            alignmentContext.getAlignmentStart() + alignmentContext.getAlignmentSpan() - 1
+                    ),
+                    overlapsContainerSpan) >= 0);
+        }
+    }
+
+    //TODO: this should filter at the slice level!
+    //we don't actually care which QueryInterval overlaps with the container; we just want to know if there is one...
+    private final static Comparator<QueryInterval> overlapsContainerSpan = (queryInterval, containerInterval) -> {
+        int comp = queryInterval.referenceIndex - containerInterval.referenceIndex;
+        if (comp != 0) {
+            return comp;
+        }
+        if (queryInterval.end <= 0) {
+            // our query interval specifies a symbolic end, so call it a match if the container span
+            // overlaps the start of the queryInterval
+            return containerInterval.end <= queryInterval.start ?
+                    -1 :
+                    0;
+        } else if (containerInterval.overlaps(queryInterval)) {
+            return 0; // there is overlap so call it a match
+        }
+        return queryInterval.compareTo(containerInterval);
+    };
 
     /**
      * Skip cached records until given alignment start position.
@@ -230,48 +165,61 @@ public class CRAMIterator implements SAMRecordIterator {
      * @param refIndex reference sequence index
      * @param pos      alignment start to skip to
      */
+    //TODO: this should first select the correct slice so we don't decode all slices unnecessarily
     public boolean advanceToAlignmentInContainer(final int refIndex, final int pos) {
         if (!hasNext()) return false;
         int i = 0;
-        for (final SAMRecord record : records) {
-            if (refIndex != SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX && record.getReferenceIndex() != refIndex) continue;
+        for (final SAMRecord record : samRecords) {
+            if (refIndex != SAMRecord.NO_ALIGNMENT_REFERENCE_INDEX && record.getReferenceIndex() != refIndex) {
+                continue;
+            }
 
             if (pos <= 0) {
                 if (record.getAlignmentStart() == SAMRecord.NO_ALIGNMENT_START) {
-                    iterator = records.listIterator(i);
+                    samRecordIterator = samRecords.listIterator(i);
                     return true;
                 }
             } else {
                 if (record.getAlignmentStart() >= pos) {
-                    iterator = records.listIterator(i);
+                    samRecordIterator = samRecords.listIterator(i);
                     return true;
                 }
             }
             i++;
         }
-        iterator = Collections.<SAMRecord>emptyList().iterator();
+        samRecordIterator = Collections.EMPTY_LIST.iterator();
         return false;
     }
 
     @Override
     public boolean hasNext() {
-        if (container != null && container.isEOF()) return false;
-        if (!iterator.hasNext()) {
-            try {
-                nextContainer();
-            } catch (IOException e) {
-                throw new SAMException(e);
-            } catch (IllegalAccessException e) {
-                throw new SAMException(e);
-            }
+        if (container != null && container.isEOF()) {
+            return false;
         }
 
-        return !records.isEmpty();
+        if (!samRecordIterator.hasNext()) {
+            BAMIteratorFilter.FilteringIteratorState nextContainerPasses =
+                    BAMIteratorFilter.FilteringIteratorState.CONTINUE_ITERATION;
+            while (nextContainerPasses == BAMIteratorFilter.FilteringIteratorState.CONTINUE_ITERATION){
+                nextContainerPasses = nextContainer();
+            }
+            return nextContainerPasses == BAMIteratorFilter.FilteringIteratorState.MATCHES_FILTER;
+        }
+
+        return !samRecords.isEmpty();
     }
 
     @Override
     public SAMRecord next() {
-        return iterator.next();
+        if (hasNext()) {
+            SAMRecord samRecord = samRecordIterator.next();
+            if (validationStringency != ValidationStringency.SILENT) {
+                SAMUtils.processValidationErrors(samRecord.isValid(), samRecordIndex++, validationStringency);
+            }
+            return samRecord;
+        } else {
+            throw new NoSuchElementException();
+        }
     }
 
     @Override
@@ -281,18 +229,33 @@ public class CRAMIterator implements SAMRecordIterator {
 
     @Override
     public void close() {
-        records.clear();
-        //noinspection EmptyCatchBlock
+        samRecords.clear();
         try {
-            if (countingInputStream != null)
+            if (countingInputStream != null) {
                 countingInputStream.close();
-        } catch (final IOException e) {
-        }
+            }
+        } catch (final RuntimeIOException e) { }
+    }
+
+    public long getFirstContainerOffset() {
+        return firstContainerOffset;
     }
 
     @Override
     public SAMRecordIterator assertSorted(final SortOrder sortOrder) {
-        throw new RuntimeException("Not implemented.");
+        return SamReader.AssertingIterator.of(this).assertSorted(sortOrder);
+    }
+
+    public CramHeader getCramHeader() {
+        return cramHeader;
+    }
+
+    public ValidationStringency getValidationStringency() {
+        return validationStringency;
+    }
+
+    public void setValidationStringency(final ValidationStringency validationStringency) {
+        this.validationStringency = validationStringency;
     }
 
     public SamReader getFileSource() {
@@ -304,7 +267,7 @@ public class CRAMIterator implements SAMRecordIterator {
     }
 
     public SAMFileHeader getSAMFileHeader() {
-        return cramHeader.getSamFileHeader();
+        return samFileHeader;
     }
 
 }

@@ -25,6 +25,7 @@ package htsjdk.samtools;
 
 import htsjdk.samtools.util.BlockCompressedFilePointerUtil;
 
+import java.util.Arrays;
 import java.util.List;
 
 import static htsjdk.samtools.GenomicIndexUtil.MAX_BINS;
@@ -33,6 +34,7 @@ import static htsjdk.samtools.GenomicIndexUtil.MAX_BINS;
  * Builder for a BinningIndexContent object.
  */
 public class BinningIndexBuilder {
+    private static final int UNINITIALIZED_WINDOW = -1;
     private final int referenceSequence;
     // the bins for the current reference
     private final Bin[] bins; // made only as big as needed for each reference
@@ -42,18 +44,35 @@ public class BinningIndexBuilder {
     private final long[] index = new long[LinearIndex.MAX_LINEAR_INDEX_SIZE];
     private int largestIndexSeen = -1;
 
+    private final boolean fillInUninitializedValues;
 
+    /**
+     *
+     * @param referenceSequence
+     * @param sequenceLength 0 implies unknown length.  Known length will reduce memory use.
+     * @param fillInUninitializedValues if true, set uninitialized values (-1) to the last non-zero offset;
+     *                                  if false, leave uninitialized values as -1, which is required when merging index files
+     *                                  (see {@link BAMIndexMerger})
+     */
+    public BinningIndexBuilder(final int referenceSequence, final int sequenceLength, final boolean fillInUninitializedValues) {
+        this.referenceSequence = referenceSequence;
+        this.fillInUninitializedValues = fillInUninitializedValues;
+        // Initially set each window to -1 so we can distinguish between windows that have no overlapping
+        // features, and those whose lowest offset is 0, which is a valid (virtual file) offset for feature
+        // formats that don't require a header.
+        Arrays.fill(index, UNINITIALIZED_WINDOW);
+        final int numBins;
+        if (sequenceLength <= 0) numBins = MAX_BINS + 1;
+        else numBins = AbstractBAMFileIndex.getMaxBinNumberForSequenceLength(sequenceLength) + 1;
+        bins = new Bin[numBins];
+    }
     /**
      *
      * @param referenceSequence
      * @param sequenceLength 0 implies unknown length.  Known length will reduce memory use.
      */
     public BinningIndexBuilder(final int referenceSequence, final int sequenceLength) {
-        this.referenceSequence = referenceSequence;
-        final int numBins;
-        if (sequenceLength <= 0) numBins = MAX_BINS + 1;
-        else numBins = AbstractBAMFileIndex.getMaxBinNumberForSequenceLength(sequenceLength) + 1;
-        bins = new Bin[numBins];
+        this(referenceSequence, sequenceLength, true);
     }
 
     public BinningIndexBuilder(final int referenceSequence) {
@@ -92,25 +111,7 @@ public class BinningIndexBuilder {
 
         final Chunk newChunk = feature.getChunk();
         final long chunkStart = newChunk.getChunkStart();
-        final long chunkEnd = newChunk.getChunkEnd();
-
-        final List<Chunk> oldChunks = bin.getChunkList();
-        if (!bin.containsChunks()) {
-            bin.addInitialChunk(newChunk);
-
-        } else {
-            final Chunk lastChunk = bin.getLastChunk();
-
-            // Coalesce chunks that are in the same or adjacent file blocks.
-            // Similar to AbstractBAMFileIndex.optimizeChunkList,
-            // but no need to copy the list, no minimumOffset, and maintain bin.lastChunk
-            if (BlockCompressedFilePointerUtil.areInSameOrAdjacentBlocks(lastChunk.getChunkEnd(), chunkStart)) {
-                lastChunk.setChunkEnd(chunkEnd);  // coalesced
-            } else {
-                oldChunks.add(newChunk);
-                bin.setLastChunk(newChunk);
-            }
-        }
+        bin.addChunk(newChunk);
 
         // process linear index
 
@@ -131,9 +132,14 @@ public class BinningIndexBuilder {
             largestIndexSeen = endWindow;
         }
 
-        // set linear index at every 16K window that this feature overlaps
+        // Set the linear index at every 16K window that this feature overlaps, but only if this chunk
+        // start is strictly earlier than any previously seen chunk start for the window, or if the window
+        // is uninitialized (this is the first feature overlapping this window).
         for (int win = startWindow; win <= endWindow; win++) {
-            if (index[win] == 0 || chunkStart < index[win]) {
+            // Initially each window is set to UNINITIALIZED_WINDOW (-1) so that we can distinguish here between
+            // windows that have no overlapping features, and those whose lowest feature offset is legitimately 0,
+            // which is a valid (virtual file) offset for feature formats that don't require a header.
+            if (index[win] == UNINITIALIZED_WINDOW || chunkStart < index[win]) {
                 index[win] = chunkStart;
             }
         }
@@ -159,9 +165,11 @@ public class BinningIndexBuilder {
         // C (samtools index) also fills in intermediate 0's with values.  This seems unnecessary, but safe
         long lastNonZeroOffset = 0;
         for (int i = 0; i <= largestIndexSeen; i++) {
-            if (index[i] == 0) {
-                index[i] = lastNonZeroOffset; // not necessary, but C (samtools index) does this
-                // note, if you remove the above line BAMIndexWriterTest.compareTextual and compareBinary will have to change
+            if (index[i] == UNINITIALIZED_WINDOW) {
+                if (fillInUninitializedValues) {
+                    index[i] = lastNonZeroOffset; // not necessary, but C (samtools index) does this
+                }
+                // note, if fillInUninitializedValues is false BAMIndexWriterTest will have to change
             } else {
                 lastNonZeroOffset = index[i];
             }

@@ -23,18 +23,17 @@
  */
 package htsjdk.samtools;
 
+
 import java.io.Serializable;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
-import javax.xml.bind.annotation.XmlTransient;
-
 /**
  * Base class for the various concrete records in a SAM header, providing uniform
  * access to the attributes.
  */
-@XmlTransient /* don't consider this class for XML-serialization */
+
 public abstract class AbstractSAMHeaderRecord implements Serializable {
     public static final long serialVersionUID = 1L;
 
@@ -60,8 +59,6 @@ public abstract class AbstractSAMHeaderRecord implements Serializable {
     /**
      * Set the given value for the attribute named 'key'.  Replaces an existing value, if any.
      * If value is null, the attribute is removed.
-     * Supported types are Character, Integer, Float and String.  Byte and Short may also be
-     * passed in but they will be converted to Integer.
      * @param key attribute name
      * @param value attribute value
      */
@@ -72,6 +69,7 @@ public abstract class AbstractSAMHeaderRecord implements Serializable {
             mAttributes.put(key, value);
         }
     }
+
     /**
      * Returns the Set of attributes.
      */
@@ -113,4 +111,10 @@ public abstract class AbstractSAMHeaderRecord implements Serializable {
     @Override public String toString() {
         return getClass().getSimpleName() + this.mAttributes.toString();
     }
+
+    /**
+     * Returns the record in the SAM line-based text format.  Fields are
+     * separated by '\t' characters. The String is NOT terminated by '\n'.
+     */
+    abstract public String getSAMString();
 }

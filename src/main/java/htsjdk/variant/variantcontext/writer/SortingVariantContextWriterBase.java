@@ -38,7 +38,11 @@ import java.util.concurrent.PriorityBlockingQueue;
 /**
  * This class writes VCF files, allowing records to be passed in unsorted.
  * It also enforces that it is never passed records of the same chromosome with any other chromosome in between them.
+ *
+ * @deprecated 9/2017, this class is completely untested and unsupported, there is no replacement at this time
+ * if you use this class please file an issue on github or it will be removed at some point in the future
  */
+@Deprecated
 abstract class SortingVariantContextWriterBase implements VariantContextWriter {
 
     // The VCFWriter to which to actually write the sorted VCF records
@@ -118,11 +122,11 @@ abstract class SortingVariantContextWriterBase implements VariantContextWriter {
            since there is no implicit ordering of chromosomes:
          */
         VCFRecord firstRec = queue.peek();
-        if (firstRec != null && !vc.getChr().equals(firstRec.vc.getChr())) { // if we hit a new contig, flush the queue
-            if (finishedChromosomes.contains(vc.getChr()))
-                throw new IllegalArgumentException("Added a record at " + vc.getChr() + ":" + vc.getStart() + ", but already finished with chromosome" + vc.getChr());
+        if (firstRec != null && !vc.getContig().equals(firstRec.vc.getContig())) { // if we hit a new contig, flush the queue
+            if (finishedChromosomes.contains(vc.getContig()))
+                throw new IllegalArgumentException("Added a record at " + vc.getContig() + ":" + vc.getStart() + ", but already finished with chromosome" + vc.getContig());
 
-            finishedChromosomes.add(firstRec.vc.getChr());
+            finishedChromosomes.add(firstRec.vc.getContig());
             stopWaitingToSort();
         }
 
@@ -130,6 +134,11 @@ abstract class SortingVariantContextWriterBase implements VariantContextWriter {
 
         queue.add(new VCFRecord(vc));
         emitSafeRecords();
+    }
+
+    @Override
+    public void setHeader(final VCFHeader header) {
+        innerWriter.setHeader(header);
     }
 
     /**
@@ -159,7 +168,7 @@ abstract class SortingVariantContextWriterBase implements VariantContextWriter {
     protected void noteCurrentRecord(VariantContext vc) {
         // did the user break the contract by giving a record too late?
         if (mostUpstreamWritableLoc != null && vc.getStart() < mostUpstreamWritableLoc) // went too far back, since may have already written anything that is <= mostUpstreamWritableLoc
-            throw new IllegalArgumentException("Permitted to write any record upstream of position " + mostUpstreamWritableLoc + ", but a record at " + vc.getChr() + ":" + vc.getStart() + " was just added.");
+            throw new IllegalArgumentException("Permitted to write any record upstream of position " + mostUpstreamWritableLoc + ", but a record at " + vc.getContig() + ":" + vc.getStart() + " was just added.");
     }
 
     // --------------------------------------------------------------------------------
@@ -186,6 +195,7 @@ abstract class SortingVariantContextWriterBase implements VariantContextWriter {
     private static class VariantContextComparator implements Comparator<VCFRecord>, Serializable {
         private static final long serialVersionUID = 1L;
 
+        @Override
         public int compare(VCFRecord r1, VCFRecord r2) {
             return r1.vc.getStart() - r2.vc.getStart();
         }

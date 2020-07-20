@@ -1,5 +1,7 @@
 package htsjdk.samtools.cram.io;
 
+import htsjdk.samtools.util.RuntimeIOException;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -15,10 +17,13 @@ public class CramInt {
      *
      * @param inputStream input stream to read from
      * @return an integer value read
-     * @throws IOException as per java IO contract
      */
-    public static int int32(final InputStream inputStream) throws IOException {
-        return inputStream.read() | inputStream.read() << 8 | inputStream.read() << 16 | inputStream.read() << 24;
+    public static int readInt32(final InputStream inputStream) {
+        try {
+            return inputStream.read() | inputStream.read() << 8 | inputStream.read() << 16 | inputStream.read() << 24;
+        } catch (final IOException e) {
+            throw new RuntimeIOException(e);
+        }
     }
 
     /**
@@ -27,7 +32,7 @@ public class CramInt {
      * @param data input stream to read from
      * @return an integer value read
      */
-    public static int int32(final byte[] data) {
+    public static int readInt32(final byte[] data) {
         if (data.length != 4)
             throw new IllegalArgumentException("Expecting a 4-byte integer. ");
         return (0xFF & data[0]) | ((0xFF & data[1]) << 8) | ((0xFF & data[2]) << 16) | ((0xFF & data[3]) << 24);
@@ -39,8 +44,11 @@ public class CramInt {
      * @param buffer {@link ByteBuffer} to read from
      * @return an integer value read from the buffer
      */
-    public static int int32(final ByteBuffer buffer) {
-        return buffer.get() | buffer.get() << 8 | buffer.get() << 16 | buffer.get() << 24;
+    public static int readInt32(final ByteBuffer buffer) {
+        return (0xFF & buffer.get()) |
+                (0xFF & buffer.get()) << 8 |
+                (0xFF & buffer.get()) << 16 |
+                (0xFF & buffer.get()) << 24;
     }
 
     /**
@@ -49,19 +57,22 @@ public class CramInt {
      * @param value value to be written out
      * @param outputStream    the output stream
      * @return the number of bits written out
-     * @throws IOException as per java IO contract
      */
     @SuppressWarnings("SameReturnValue")
-    public static int writeInt32(final int value, final OutputStream outputStream) throws IOException {
-        outputStream.write((byte) value);
-        outputStream.write((byte) (value >> 8));
-        outputStream.write((byte) (value >> 16));
-        outputStream.write((byte) (value >> 24));
+    public static int writeInt32(final int value, final OutputStream outputStream) {
+        try {
+            outputStream.write((byte) value);
+            outputStream.write((byte) (value >> 8));
+            outputStream.write((byte) (value >> 16));
+            outputStream.write((byte) (value >> 24));
+        } catch (final IOException e) {
+            throw new RuntimeIOException(e);
+        }
         return 4 * 8;
     }
 
     /**
-     * Write int value to {@link OutputStream} encoded as CRAM int data type.
+     * Write int value to an array of bytes encoded as CRAM int data type.
      *
      * @param value value to be written out
      * @return the byte array holding the value encoded as CRAM int data type
@@ -74,5 +85,4 @@ public class CramInt {
         data[3] = (byte) (value >> 24 & 0xFF);
         return data;
     }
-
 }

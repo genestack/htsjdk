@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright (c) 2009 The Broad Institute
+ * Copyright (c) 2018 The Broad Institute
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,6 +23,7 @@
  */
 package htsjdk.samtools.util;
 
+import htsjdk.HtsjdkTest;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.AfterTest;
@@ -41,7 +42,7 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Random;
 
-public class SortingCollectionTest {
+public class SortingCollectionTest extends HtsjdkTest {
     // Create a separate directory for files so it is possible to confirm that the directory is emptied
     protected File tmpDir() {
         return new File(System.getProperty("java.io.tmpdir") + "/" + System.getProperty("user.name"), getClass().getSimpleName());
@@ -102,6 +103,27 @@ public class SortingCollectionTest {
         Assert.assertEquals(tmpDir().list().length, 0);
     }
 
+    @Test
+    public void spillToDiskTest() {
+        final SortingCollection<String> sortingCollection = makeSortingCollection(10);
+        final String[] strings = new String[] {
+                "1", "2", "3"
+        };
+
+        for (String str : strings) {
+            sortingCollection.add(str);
+        }
+
+        Assert.assertEquals(tmpDir().list().length, 0);
+        sortingCollection.spillToDisk();
+        Assert.assertEquals(tmpDir().list().length, 1);
+
+        assertIteratorEqualsList(strings, sortingCollection.iterator());
+
+        sortingCollection.cleanup();
+        Assert.assertEquals(tmpDir().list().length, 0);
+    }
+
     private void assertIteratorEqualsList(final String[] strings, final Iterator<String> sortingCollection) {
         int i = 0;
         while (sortingCollection.hasNext()) {
@@ -119,7 +141,7 @@ public class SortingCollectionTest {
      * Generate pseudo-random Strings for testing
      */
     static class RandomStringGenerator implements Iterable<String>, Iterator<String> {
-        Random random = new Random(0);
+        Random random = new Random(TestUtil.RANDOM_SEED);
         int numElementsToGenerate;
         int numElementsGenerated = 0;
 
@@ -130,19 +152,23 @@ public class SortingCollectionTest {
             this.numElementsToGenerate = numElementsToGenerate;
         }
 
+        @Override
         public Iterator<String> iterator() {
             return this;
         }
 
+        @Override
         public boolean hasNext() {
             return numElementsGenerated < numElementsToGenerate;
         }
 
+        @Override
         public String next() {
             ++numElementsGenerated;
             return Integer.toString(random.nextInt());
         }
 
+        @Override
         public void remove() {
             throw new UnsupportedOperationException();
         }
@@ -150,6 +176,7 @@ public class SortingCollectionTest {
 
     static class StringComparator implements Comparator<String> {
 
+        @Override
         public int compare(final String s, final String s1) {
             return s.compareTo(s1);
         }
@@ -160,6 +187,7 @@ public class SortingCollectionTest {
         OutputStream os;
         InputStream is;
 
+        @Override
         public SortingCollection.Codec<String> clone() {
             return new StringCodec();
         }
@@ -169,6 +197,7 @@ public class SortingCollectionTest {
          *
          * @param os
          */
+        @Override
         public void setOutputStream(final OutputStream os) {
             this.os = os;
         }
@@ -178,6 +207,7 @@ public class SortingCollectionTest {
          *
          * @param is
          */
+        @Override
         public void setInputStream(final InputStream is) {
             this.is = is;
         }
@@ -187,6 +217,7 @@ public class SortingCollectionTest {
          *
          * @param val what to write
          */
+        @Override
         public void encode(final String val) {
             try {
                 byteBuffer.clear();
@@ -204,6 +235,7 @@ public class SortingCollectionTest {
          * @return null if no more records.  Should throw exception if EOF is encountered in the middle of
          *         a record.
          */
+        @Override
         public String decode() {
             try {
                 byteBuffer.clear();

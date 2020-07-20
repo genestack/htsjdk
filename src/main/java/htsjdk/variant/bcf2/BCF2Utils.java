@@ -25,11 +25,9 @@
 
 package htsjdk.variant.bcf2;
 
+import htsjdk.samtools.util.FileExtensions;
 import htsjdk.tribble.TribbleException;
-import htsjdk.variant.vcf.VCFConstants;
-import htsjdk.variant.vcf.VCFHeader;
-import htsjdk.variant.vcf.VCFHeaderLine;
-import htsjdk.variant.vcf.VCFIDHeaderLine;
+import htsjdk.variant.vcf.*;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -186,10 +184,10 @@ public final class BCF2Utils {
      */
     public static final File shadowBCF(final File vcfFile) {
         final String path = vcfFile.getAbsolutePath();
-        if ( path.contains(".vcf") )
-            return new File(path.replace(".vcf", ".bcf"));
+        if ( path.contains(FileExtensions.VCF) )
+            return new File(path.replace(FileExtensions.VCF, FileExtensions.BCF));
         else {
-            final File bcf = new File( path + ".bcf" );
+            final File bcf = new File( path + FileExtensions.BCF );
             if ( bcf.canRead() )
                 return bcf;
             else {

@@ -23,6 +23,7 @@
  */
 package htsjdk.samtools.liftover;
 
+import htsjdk.HtsjdkTest;
 import htsjdk.samtools.util.Interval;
 import htsjdk.samtools.util.OverlapDetector;
 import org.testng.Assert;
@@ -30,22 +31,20 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
-import java.io.File;
-import java.io.PrintWriter;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeMap;
+import java.io.*;
+import java.util.*;
+import java.util.stream.Stream;
 
 /**
  * @author alecw@broadinstitute.org
  */
-public class LiftOverTest {
+public class LiftOverTest extends HtsjdkTest {
     private static final File TEST_DATA_DIR = new File("src/test/resources/htsjdk/samtools/liftover");
     private static final File CHAIN_FILE = new File(TEST_DATA_DIR, "hg18ToHg19.over.chain");
 
     private LiftOver liftOver;
-    Map<String, Set<String>> contigMap;
+    private Map<String, Set<String>> contigMap;
+    private LiftOver liftOverFromInputStream;
 
     @BeforeClass
     public void initLiftOver() {
@@ -53,16 +52,30 @@ public class LiftOverTest {
         contigMap = liftOver.getContigMap();
     }
 
+    @BeforeClass
+    public void initLiftOverFromInputStream() throws FileNotFoundException {
+        InputStream chainFileInputStream = new FileInputStream(CHAIN_FILE);
+        liftOverFromInputStream = new LiftOver(chainFileInputStream, CHAIN_FILE.toString());
+    }
+
     @Test(dataProvider = "testIntervals")
     public void testBasic(final Interval in, final Interval expected) {
+        Assert.assertEquals(liftOver.liftOver(in), expected);
+    }
+
+    @Test(dataProvider = "testIntervalsSubset")
+    public void testLiftoverCounter(final Interval in, final Interval expected) {
+        liftOver.resetFailedIntervalsBelowThresholdCounter();
         final Interval out = liftOver.liftOver(in);
         Assert.assertEquals(out, expected);
 
+        Assert.assertEquals(liftOver.getFailedIntervalsBelowThreshold(), expected == null ? 1 : 0);
+
     }
 
-    @DataProvider(name = "testIntervals")
-    public Object[][] makeTestIntervals() {
-        return new Object[][] {
+    @DataProvider(name = "testIntervalsSubset")
+    public Object[][] makeTestIntervalsSubset() {
+        return new Object[][]{
                 {new Interval("chr3", 50911035, 50911051), null},
                 {new Interval("chr1", 16776377, 16776452),    new Interval("chr1", 16903790, 16903865)},
                 {new Interval("chr2", 30575990, 30576065),    new Interval("chr2", 30722486, 30722561)},
@@ -275,7 +288,15 @@ public class LiftOverTest {
                 {new Interval("chrX", 128442357, 128442474),	new Interval("chrX", 128614676, 128614793)},
                 {new Interval("chrX", 152701873, 152701902),	new Interval("chrX", 153048679, 153048708)},
                 {new Interval("chrY", 2715028, 2715646),	new Interval("chrY", 2655028, 2655646)},
-                {new Interval("chrY", 26179988, 26180064),	new Interval("chrY", 27770600, 27770676)},
+                {new Interval("chrY", 26179988, 26180064),	new Interval("chrY", 27770600, 27770676)}
+        };
+    }
+
+    @DataProvider(name = "testIntervals")
+    public Object[][] makeTestIntervals() {
+        Object[][] arr1 = makeTestIntervalsSubset();
+
+        Object[][] arr2 = new Object[][] {
                 // Some intervals that are flipped in the new genome
                 {new Interval("chr1", 2479704, 2479833, false, "target_549"),        new Interval("chr1", 2494585, 2494714, true, "target_549")},
                 {new Interval("chr1", 2480081, 2480116, false, "target_550"),        new Interval("chr1", 2494302, 2494337, true, "target_550")},
@@ -383,6 +404,8 @@ public class LiftOverTest {
                 {new Interval("chrX", 48774611, 48775058), null},
 
         };
+
+        return Stream.concat(Arrays.stream(arr1), Arrays.stream(arr2)).toArray(Object[][]::new);
     }
 
     @Test(dataProvider = "failingIntervals")
@@ -444,7 +467,7 @@ public class LiftOverTest {
         File outFile = File.createTempFile("test.", ".chain");
         outFile.deleteOnExit();
         PrintWriter pw = new PrintWriter(outFile);
-        final Map<Integer, Chain> originalChainMap = new TreeMap<Integer, Chain>();
+        final Map<Integer, Chain> originalChainMap = new TreeMap<>();
         for (final Chain chain : chains.getAll()) {
             chain.write(pw);
             originalChainMap.put(chain.id, chain);
@@ -452,11 +475,16 @@ public class LiftOverTest {
         pw.close();
 
         final OverlapDetector<Chain> newChains = Chain.loadChains(outFile);
-        final Map<Integer, Chain> newChainMap = new TreeMap<Integer, Chain>();
+        final Map<Integer, Chain> newChainMap = new TreeMap<>();
         for (final Chain chain : newChains.getAll()) {
             newChainMap.put(chain.id, chain);
         }
         Assert.assertEquals(newChainMap, originalChainMap);
+    }
+
+    @Test(dataProvider = "testIntervals")
+    public void loadLiftOverFromInputStream(final Interval in, final Interval expected) {
+        Assert.assertEquals(liftOverFromInputStream.liftOver(in), expected);
     }
 
     @Test(dataProvider = "testIntervals")

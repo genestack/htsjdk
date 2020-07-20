@@ -59,7 +59,7 @@ class VariantJEXLContext implements JexlContext {
 
     static {
         attributes.put("vc", (VariantContext vc) -> vc);
-        attributes.put("CHROM", VariantContext::getChr);
+        attributes.put("CHROM", VariantContext::getContig);
         attributes.put("POS", VariantContext::getStart);
         attributes.put("TYPE", (VariantContext vc) -> vc.getType().toString());
         attributes.put("QUAL", (VariantContext vc) -> -10 * vc.getLog10PError());
@@ -76,6 +76,7 @@ class VariantJEXLContext implements JexlContext {
         this.vc = vc;
     }
 
+    @Override
     public Object get(String name) {
         Object result = null;
         if ( attributes.containsKey(name) ) { // dynamic resolution of name -> value via map
@@ -89,6 +90,7 @@ class VariantJEXLContext implements JexlContext {
         return result;
     }
 
+    @Override
     public boolean has(String name) {
         return get(name) != null;
     }
@@ -96,6 +98,7 @@ class VariantJEXLContext implements JexlContext {
     /**
      * @throws UnsupportedOperationException
      */
+    @Override
     public void	set(String name, Object value) {
         throw new UnsupportedOperationException("remove() not supported on a VariantJEXLContext");
     }

@@ -23,6 +23,9 @@
  */
 package htsjdk.samtools.reference;
 
+import htsjdk.HtsjdkTest;
+import htsjdk.samtools.seekablestream.SeekableFileStream;
+import htsjdk.samtools.seekablestream.SeekableStream;
 import htsjdk.samtools.util.StringUtil;
 import org.testng.Assert;
 import org.testng.annotations.Test;
@@ -33,7 +36,7 @@ import java.io.PrintWriter;
 /**
  * @author alecw@broadinstitute.org
  */
-public class FastaSequenceFileTest {
+public class FastaSequenceFileTest extends HtsjdkTest {
     @Test
     public void testTrailingWhitespace() throws Exception {
         final File fasta = File.createTempFile("test", ".fasta");
@@ -81,5 +84,29 @@ public class FastaSequenceFileTest {
         Assert.assertEquals(referenceSequence.getName(), "chr2");
         Assert.assertEquals(StringUtil.bytesToString(referenceSequence.getBases()), "TCGATCGA");
 
+    }
+
+    @Test
+    public void testStream() throws Exception {
+        final File fasta = File.createTempFile("test", ".fasta");
+        fasta.deleteOnExit();
+        final PrintWriter writer = new PrintWriter(fasta);
+        final String chr1 = "chr1";
+        writer.println(">" + chr1);
+        final String sequence = "ACGTACGT";
+        writer.println(sequence);
+        writer.println(sequence + " \t");
+        writer.close();
+        try (SeekableStream seekableStream = new SeekableFileStream(fasta)) {
+            final FastaSequenceFile fastaReader = new FastaSequenceFile(fasta.getAbsolutePath(), seekableStream, null, true);
+            final ReferenceSequence referenceSequence1 = fastaReader.nextSequence();
+            Assert.assertEquals(referenceSequence1.getName(), chr1);
+            Assert.assertEquals(StringUtil.bytesToString(referenceSequence1.getBases()), sequence + sequence);
+            // try to reset and re-read the first sequence
+            fastaReader.reset();
+            final ReferenceSequence referenceSequence2 = fastaReader.nextSequence();
+            Assert.assertEquals(referenceSequence2.getName(), chr1);
+            Assert.assertEquals(StringUtil.bytesToString(referenceSequence2.getBases()), sequence + sequence);
+        }
     }
 }

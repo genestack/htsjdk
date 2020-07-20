@@ -18,6 +18,9 @@
 
 package htsjdk.tribble.index;
 
+import htsjdk.samtools.util.IOUtil;
+import htsjdk.samtools.util.Log;
+import htsjdk.samtools.util.RuntimeIOException;
 import htsjdk.tribble.Tribble;
 import htsjdk.tribble.TribbleException;
 import htsjdk.tribble.util.LittleEndianInputStream;
@@ -25,8 +28,9 @@ import htsjdk.tribble.util.LittleEndianOutputStream;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -67,11 +71,12 @@ public abstract class AbstractIndex implements MutableIndex {
     private final static long NO_TS = -1L;
 
     protected int version;                    // Our version value
-    protected File indexedFile = null;         // The file we've created this index for
+    protected Path indexedPath = null;         // The file we've created this index for
     protected long indexedFileSize = NO_FILE_SIZE; // The size of the indexed file
     protected long indexedFileTS = NO_TS;      // The timestamp
     protected String indexedFileMD5 = NO_MD5;        // The MD5 value, generally not filled in (expensive to calc)
     protected int flags;
+    protected final Log logger = Log.getInstance(this.getClass());
 
     public boolean hasFileSize() {
         return indexedFileSize != NO_FILE_SIZE;
@@ -101,6 +106,7 @@ public abstract class AbstractIndex implements MutableIndex {
      * @param obj
      * @return true if this and obj are 'effectively' equivalent data structures.
      */
+    @Override
     public boolean equalsIgnoreProperties(final Object obj) {
         if (this == obj) return true;
         if (!(obj instanceof AbstractIndex)) {
@@ -115,8 +121,8 @@ public abstract class AbstractIndex implements MutableIndex {
             return false;
         }
 
-        if (indexedFile != other.indexedFile && (indexedFile == null || !indexedFile.equals(other.indexedFile))) {
-            System.err.printf("equals indexedFile: this %s != other %s%n", indexedFile, other.indexedFile);
+        if (indexedPath != other.indexedPath && (indexedPath == null || !indexedPath.equals(other.indexedPath))) {
+            System.err.printf("equals indexedPath: this %s != other %s%n", indexedPath, other.indexedPath);
             return false;
         }
 
@@ -136,7 +142,7 @@ public abstract class AbstractIndex implements MutableIndex {
         }
 
         if (!chrIndices.equals(other.chrIndices)) {
-            System.err.printf("equals chrIndeces: this %s != other %s%n", chrIndices, other.chrIndices);
+            System.err.printf("equals chrIndices: this %s != other %s%n", chrIndices, other.chrIndices);
             return false;
         }
 
@@ -158,18 +164,27 @@ public abstract class AbstractIndex implements MutableIndex {
      * @param featureFile the feature file to create an index from
      */
     public AbstractIndex(final String featureFile) {
-        this(new File(featureFile));
+        this();
+        try {
+            this.indexedPath = IOUtil.getPath(featureFile).toAbsolutePath();
+        } catch (IOException e) {
+            throw new IllegalArgumentException("IO error: " + e.getMessage(), e);
+        }
     }
 
     public AbstractIndex(final File featureFile) {
+        this(IOUtil.toPath(featureFile));
+    }
+
+    public AbstractIndex(final Path featurePath) {
         this();
-        this.indexedFile = featureFile;
+        this.indexedPath = featurePath.toAbsolutePath();
     }
 
     public AbstractIndex(final AbstractIndex parent) {
         this();
         this.version = parent.version;
-        this.indexedFile = parent.indexedFile;
+        this.indexedPath = parent.indexedPath;
         this.indexedFileSize = parent.indexedFileSize;
         this.indexedFileTS = parent.indexedFileTS;
         this.indexedFileMD5 = parent.indexedFileMD5;
@@ -194,12 +209,23 @@ public abstract class AbstractIndex implements MutableIndex {
      *
      * @return true if we're up to date, false otherwise
      */
+    @Override
     public boolean isCurrentVersion() {
         return version == VERSION;
     }
 
+    /**
+     * Gets the indexed file.
+     * @throws UnsupportedOperationException if the path cannot be represented as a file.
+     * @deprecated on 03/2017. Use {@link #getIndexedPath()} instead.
+     */
+    @Deprecated
     public File getIndexedFile() {
-        return indexedFile;
+        return getIndexedPath().toFile();
+    }
+
+    public Path getIndexedPath() {
+        return indexedPath;
     }
 
     public long getIndexedFileSize() {
@@ -226,15 +252,20 @@ public abstract class AbstractIndex implements MutableIndex {
         this.indexedFileMD5 = md5;
     }
 
+    @Override
     public boolean containsChromosome(final String chr) {
         return chrIndices.containsKey(chr);
     }
 
     public void finalizeIndex() {
-        // these two functions must be called now because the file may be being written during on the fly indexing
-        if (indexedFile != null) {
-            this.indexedFileSize = indexedFile.length();
-            this.indexedFileTS = indexedFile.lastModified();
+        try {
+            // these two functions must be called now because the file may be being written during on the fly indexing
+            if (indexedPath != null) {
+                this.indexedFileSize = Files.size(indexedPath);
+                this.indexedFileTS = Files.getLastModifiedTime(indexedPath).toMillis();
+            }
+        } catch (IOException e) {
+            throw new RuntimeIOException(e);
         }
     }
 
@@ -248,7 +279,7 @@ public abstract class AbstractIndex implements MutableIndex {
         dos.writeInt(MAGIC_NUMBER);
         dos.writeInt(getType());
         dos.writeInt(version);
-        dos.writeString(indexedFile.getAbsolutePath());
+        dos.writeString(indexedPath.toUri().toString());
         dos.writeLong(indexedFileSize);
         dos.writeLong(indexedFileTS);
         dos.writeString(indexedFileMD5);
@@ -271,7 +302,7 @@ public abstract class AbstractIndex implements MutableIndex {
     private void readHeader(final LittleEndianInputStream dis) throws IOException {
 
         version = dis.readInt();
-        indexedFile = new File(dis.readString());
+        indexedPath = IOUtil.getPath(dis.readString());
         indexedFileSize = dis.readLong();
         indexedFileTS = dis.readLong();
         indexedFileMD5 = dis.readString();
@@ -306,10 +337,12 @@ public abstract class AbstractIndex implements MutableIndex {
         }
     }
 
+    @Override
     public List<String> getSequenceNames() {
         return new ArrayList<String>(chrIndices.keySet());
     }
 
+    @Override
     public List<Block> getBlocks(final String chr, final int start, final int end) {
         return getChrIndex(chr).getBlocks(start, end);
     }
@@ -332,6 +365,7 @@ public abstract class AbstractIndex implements MutableIndex {
         }
     }
 
+    @Override
     public void write(final LittleEndianOutputStream stream) throws IOException {
         writeHeader(stream);
 
@@ -343,17 +377,20 @@ public abstract class AbstractIndex implements MutableIndex {
     }
 
     @Override
-    public void write(final File idxFile) throws IOException {
-        try(final LittleEndianOutputStream idxStream = new LittleEndianOutputStream(new BufferedOutputStream(new FileOutputStream(idxFile)))) {
+    public void write(final Path idxPath) throws IOException {
+        try(final LittleEndianOutputStream idxStream = new LittleEndianOutputStream(new BufferedOutputStream(Files.newOutputStream(idxPath)))) {
             write(idxStream);
         }
     }
 
     @Override
-    public void writeBasedOnFeatureFile(final File featureFile) throws IOException {
-        if (!featureFile.isFile()) return;
-        write(Tribble.indexFile(featureFile));
+    public void writeBasedOnFeaturePath(final Path featurePath) throws IOException {
+        if (!Files.isRegularFile(featurePath)) {
+            throw new IOException("Cannot write based on a non-regular file: " + featurePath.toUri());
+        }
+        write(Tribble.indexPath(featurePath));
     }
+
 
     public void read(final LittleEndianInputStream dis) throws IOException {
         try {
@@ -380,7 +417,7 @@ public abstract class AbstractIndex implements MutableIndex {
     }
 
     protected void printIndexInfo() {
-        System.out.println(String.format("Index for %s with %d indices", indexedFile, chrIndices.size()));
+        System.out.println(String.format("Index for %s with %d indices", indexedPath, chrIndices.size()));
         final BlockStats stats = getBlockStats(true);
         System.out.println(String.format("  total blocks %d", stats.total));
         System.out.println(String.format("  total empty blocks %d", stats.empty));
@@ -418,10 +455,12 @@ public abstract class AbstractIndex implements MutableIndex {
         return String.format("%12d blocks (%12d empty (%.2f%%))", stats.total, stats.empty, (100.0 * stats.empty) / stats.total);
     }
 
+    @Override
     public void addProperty(final String key, final String value) {
         properties.put(key, value);
     }
 
+    @Override
     public void addProperties(final Map<String, String> properties) {
         this.properties.putAll(properties);
     }
@@ -431,6 +470,7 @@ public abstract class AbstractIndex implements MutableIndex {
      *
      * @return the mapping of values as an unmodifiable map
      */
+    @Override
     public Map<String, String> getProperties() {
         return Collections.unmodifiableMap(properties);
     }

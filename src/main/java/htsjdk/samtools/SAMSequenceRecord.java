@@ -23,28 +23,26 @@
  */
 package htsjdk.samtools;
 
+
+
 import java.math.BigInteger;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
-
-import javax.xml.bind.annotation.XmlAttribute;
-import javax.xml.bind.annotation.XmlRootElement;
-import javax.xml.bind.annotation.XmlValue;
+import htsjdk.samtools.util.Locatable;
 
 /**
  * Header information about a reference sequence.  Corresponds to @SQ header record in SAM text header.
  */
-@XmlRootElement(name="Reference")
-public class SAMSequenceRecord extends AbstractSAMHeaderRecord implements Cloneable
+
+public class SAMSequenceRecord extends AbstractSAMHeaderRecord implements Cloneable, Locatable
 {
     public static final long serialVersionUID = 1L; // AbstractSAMHeaderRecord implements Serializable
-    private String mSequenceName = null; // Value must be interned() if it's ever set/modified
-    private int mSequenceIndex = -1;
+    public final static int UNAVAILABLE_SEQUENCE_INDEX = -1;
+    private final String mSequenceName; // Value must be interned() if it's ever set/modified
+    private int mSequenceIndex = UNAVAILABLE_SEQUENCE_INDEX;
     private int mSequenceLength = 0;
     public static final String SEQUENCE_NAME_TAG = "SN";
     public static final String SEQUENCE_LENGTH_TAG = "LN";
@@ -52,6 +50,7 @@ public class SAMSequenceRecord extends AbstractSAMHeaderRecord implements Clonea
     public static final String ASSEMBLY_TAG = "AS";
     public static final String URI_TAG = "UR";
     public static final String SPECIES_TAG = "SP";
+    public static final String DESCRIPTION_TAG = "DS";
 
     /** If one sequence has this length, and another sequence had a different length, isSameSequence will
      * not complain that they are different sequences. */
@@ -59,28 +58,27 @@ public class SAMSequenceRecord extends AbstractSAMHeaderRecord implements Clonea
 
 
     /**
-     * This is not a valid sequence name, because it is reserved in the MRNM field of SAM text format
+     * This is not a valid sequence name, because it is reserved in the RNEXT field of SAM text format
      * to mean "same reference as RNAME field."
      */
-    public static final String RESERVED_MRNM_SEQUENCE_NAME = "=";
+
+    public static final String RESERVED_RNEXT_SEQUENCE_NAME = "=";
+
+    /* use RESERVED_RNEXT_SEQUENCE_NAME instead. */
+    @Deprecated
+    public static final String RESERVED_MRNM_SEQUENCE_NAME = RESERVED_RNEXT_SEQUENCE_NAME;
 
     /**
      * The standard tags are stored in text header without type information, because the type of these tags is known.
      */
     public static final Set<String> STANDARD_TAGS =
-            new HashSet<String>(Arrays.asList(SEQUENCE_NAME_TAG, SEQUENCE_LENGTH_TAG, ASSEMBLY_TAG, MD5_TAG, URI_TAG,
-                                                SPECIES_TAG));
+            new HashSet<>(Arrays.asList(SEQUENCE_NAME_TAG, SEQUENCE_LENGTH_TAG, ASSEMBLY_TAG, MD5_TAG, URI_TAG, SPECIES_TAG));
 
-    // Split on any whitespace
-    private static Pattern SEQUENCE_NAME_SPLITTER = Pattern.compile("\\s");
     // These are the chars matched by \\s.
-    private static char[] WHITESPACE_CHARS = {' ', '\t', '\n', '\013', '\f', '\r'}; // \013 is vertical tab
+    private static final char[] WHITESPACE_CHARS = {' ', '\t', '\n', '\013', '\f', '\r'}; // \013 is vertical tab
 
-    /** a (private) empty constructor is required for JAXB.XML-serialisation */
-    @SuppressWarnings("unused")
-    private SAMSequenceRecord() {
-    }
-    
+    private static final Pattern LEGAL_RNAME_PATTERN = Pattern.compile("[0-9A-Za-z!#$%&+./:;?@^_|~-][0-9A-Za-z!#$%&*+./:;=?@^_|~-]*");
+
     /**
      * @deprecated Use {@link #SAMSequenceRecord(String, int)} instead.
      * sequenceLength is required for the object to be considered valid.
@@ -92,49 +90,34 @@ public class SAMSequenceRecord extends AbstractSAMHeaderRecord implements Clonea
 
     public SAMSequenceRecord(final String name, final int sequenceLength) {
         if (name != null) {
-            if (SEQUENCE_NAME_SPLITTER.matcher(name).find()) {
-                throw new SAMException("Sequence name contains invalid character: " + name);
-            }
             validateSequenceName(name);
             mSequenceName = name.intern();
+        } else {
+            mSequenceName = null;
         }
         mSequenceLength = sequenceLength;
     }
-    
-    @XmlValue
+
     public String getSequenceName() { return mSequenceName; }
-   
-    /* this private method is used by XML serialization */
-    @SuppressWarnings("unused")
-    private void setSequenceName(final String name) {
-        if (name != null) {
-            mSequenceName = name.intern();
-        }
-        else {
-            mSequenceName = null;
-        }
-    }
-    
-    @XmlAttribute(name="length")
+
     public int getSequenceLength() { return mSequenceLength; }
     public void setSequenceLength(final int value) { mSequenceLength = value; }
 
-    @XmlAttribute(name="assembly")
     public String getAssembly() { return (String) getAttribute(ASSEMBLY_TAG); }
     public void setAssembly(final String value) { setAttribute(ASSEMBLY_TAG, value); }
 
-    @XmlAttribute(name="species")
     public String getSpecies() { return (String) getAttribute(SPECIES_TAG); }
     public void setSpecies(final String value) { setAttribute(SPECIES_TAG, value); }
 
-    @XmlAttribute(name="md5")
     public String getMd5() { return (String) getAttribute(MD5_TAG); }
     public void setMd5(final String value) { setAttribute(MD5_TAG, value); }
+
+    public String getDescription() { return getAttribute(DESCRIPTION_TAG);}
+    public void setDescription(final String value) { setAttribute(DESCRIPTION_TAG, value);}
 
     /**
      * @return Index of this record in the sequence dictionary it lives in. 
      */
-    @XmlAttribute(name="index")
     public int getSequenceIndex() { return mSequenceIndex; }
 
     // Private state used only by SAM implementation.
@@ -166,14 +149,6 @@ public class SAMSequenceRecord extends AbstractSAMHeaderRecord implements Clonea
         return true;
     }
 
-    private URI makeURI(final String s) throws URISyntaxException {
-        URI uri = new URI(s);
-        if (uri.getScheme() == null) {
-            uri = new URI("file", uri.getUserInfo(), uri.getHost(), uri.getPort(), uri.getPath(), uri.getQuery(), uri.getFragment());
-        }
-        return uri;
-    }
-
     @Override
     public boolean equals(final Object o) {
         if (this == o) return true;
@@ -194,10 +169,12 @@ public class SAMSequenceRecord extends AbstractSAMHeaderRecord implements Clonea
         return mSequenceName != null ? mSequenceName.hashCode() : 0;
     }
 
+    @Override
     Set<String> getStandardTags() {
         return STANDARD_TAGS;
     }
 
+    @Override
     public final SAMSequenceRecord clone() {
         final SAMSequenceRecord ret = new SAMSequenceRecord(this.mSequenceName, this.mSequenceLength);
         ret.mSequenceIndex = this.mSequenceIndex;
@@ -213,12 +190,12 @@ public class SAMSequenceRecord extends AbstractSAMHeaderRecord implements Clonea
     public static String truncateSequenceName(final String sequenceName) {
         /*
          * Instead of using regex split, do it manually for better performance.
-        return SEQUENCE_NAME_SPLITTER.split(sequenceName, 2)[0];
-        */
+         */
+
         int truncateAt = sequenceName.length();
         for (final char c : WHITESPACE_CHARS) {
             int index = sequenceName.indexOf(c);
-            if (index != -1 && index < truncateAt) {
+            if (index != UNAVAILABLE_SEQUENCE_INDEX && index < truncateAt) {
                 truncateAt = index;
             }
         }
@@ -229,8 +206,8 @@ public class SAMSequenceRecord extends AbstractSAMHeaderRecord implements Clonea
      * Throw an exception if the sequence name is not valid.
      */
     public static void validateSequenceName(final String name) {
-        if (RESERVED_MRNM_SEQUENCE_NAME.equals(name)) {
-            throw new SAMException("'" + RESERVED_MRNM_SEQUENCE_NAME + "' is not a valid sequence name");
+        if (!LEGAL_RNAME_PATTERN.matcher(name).useAnchoringBounds(true).matches()) {
+            throw new SAMException(String.format("Sequence name '%s' doesn't match regex: '%s' ", name, LEGAL_RNAME_PATTERN));
         }
     }
 
@@ -243,6 +220,32 @@ public class SAMSequenceRecord extends AbstractSAMHeaderRecord implements Clonea
                 getSequenceIndex(),
                 getAssembly()
         );
+    }
+
+    @Override
+    public String getSAMString() {
+        return new SAMTextHeaderCodec().getSQLine(this);
+    }
+    /** always returns <code>getSequenceName()</code> 
+     * @see #getSequenceName()
+     * */
+    @Override
+    public final String getContig() {
+        return this.getSequenceName();
+    }
+    
+    /** always returns 1 */
+    @Override
+    public final int getStart() {
+        return 1;
+    }
+    
+    /** always returns <code>getSequenceLength()</code> 
+     * @see #getSequenceLength()
+     * */
+    @Override
+    public final int getEnd() {
+        return this.getSequenceLength();
     }
 }
 

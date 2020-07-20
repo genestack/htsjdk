@@ -54,6 +54,7 @@ public class TribbleException extends RuntimeException {
      * override the default message with ours, which attaches the source file in question
      * @return a string with our internal error, along with the causitive source file (or other input source)
      */
+    @Override
     public String getMessage() {
         String ret = super.getMessage();
         if ( source != null )
@@ -120,6 +121,13 @@ public class TribbleException extends RuntimeException {
 
     public static class UnableToReadIndexFile extends TribbleException {
         public UnableToReadIndexFile(String message, String f, Exception e) {
+            super(message,e);
+            setSource(f);
+        }
+    }
+
+    public static class CorruptedIndexFile extends TribbleException {
+        public CorruptedIndexFile(String message, String f, Exception e) {
             super(message,e);
             setSource(f);
         }

@@ -41,7 +41,7 @@ import java.util.Set;
 public class ReadNameFilter implements SamRecordFilter {
 
     private boolean includeReads = false;
-    private Set<String> readNameFilterSet = new HashSet<String>();
+    private Set<String> readNameFilterSet = new HashSet<>();
 
     public ReadNameFilter(final File readNameFilterFile, final boolean includeReads) {
 
@@ -79,18 +79,9 @@ public class ReadNameFilter implements SamRecordFilter {
      *
      * @return true if the SAMRecord matches the filter, otherwise false
      */
+    @Override
     public boolean filterOut(final SAMRecord record) {
-        if (includeReads) {
-            if (readNameFilterSet.contains(record.getReadName())) {
-                return false;
-            }
-        } else {
-            if (!readNameFilterSet.contains(record.getReadName())) {
-                return false;
-            }
-        }
-
-        return true;
+        return readNameFilterSet.contains(record.getReadName()) != includeReads;
     }
 
     /**
@@ -101,6 +92,7 @@ public class ReadNameFilter implements SamRecordFilter {
      *
      * @return true if the pair of records matches filter, otherwise false
      */
+    @Override
     public boolean filterOut(final SAMRecord first, final SAMRecord second) {
         if (includeReads) {
             if (readNameFilterSet.contains(first.getReadName()) &&

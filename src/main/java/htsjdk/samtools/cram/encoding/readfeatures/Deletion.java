@@ -18,18 +18,16 @@
 package htsjdk.samtools.cram.encoding.readfeatures;
 
 import java.io.Serializable;
+import java.util.Objects;
 
 /**
  * A read feature representing a deletion of one or more bases similar to {@link htsjdk.samtools.CigarOperator#D}.
  */
-public class Deletion implements Serializable, ReadFeature {
+public final class Deletion implements Serializable, ReadFeature {
 
     private int position;
     private int length;
     public static final byte operator = 'D';
-
-    public Deletion() {
-    }
 
     public Deletion(final int position, final int length) {
         this.position = position;
@@ -46,32 +44,26 @@ public class Deletion implements Serializable, ReadFeature {
         return position;
     }
 
-    @Override
-    public void setPosition(final int position) {
-        this.position = position;
-    }
-
     public int getLength() {
         return length;
-    }
-
-    public void setLength(final int length) {
-        this.length = length;
-    }
-
-    @Override
-    public boolean equals(final Object obj) {
-        if (!(obj instanceof Deletion))
-            return false;
-
-        final Deletion deleteion = (Deletion) obj;
-
-        return position == deleteion.position && length == deleteion.length;
-
     }
 
     @Override
     public String toString() {
         return String.valueOf((char) operator) + '@' + position + '+' + length;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Deletion deletion = (Deletion) o;
+        return position == deletion.position &&
+                length == deletion.length;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(position, length);
     }
 }

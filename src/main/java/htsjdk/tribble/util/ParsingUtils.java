@@ -23,6 +23,8 @@
  */
 package htsjdk.tribble.util;
 
+import htsjdk.samtools.seekablestream.SeekablePathStream;
+import htsjdk.samtools.util.IOUtil;
 import java.awt.Color;
 import java.io.File;
 import java.io.FileInputStream;
@@ -30,29 +32,24 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
 import java.net.MalformedURLException;
+import java.net.URI;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.WeakHashMap;
+import java.nio.channels.SeekableByteChannel;
+import java.nio.file.Files;
+import java.util.*;
+import java.util.function.Function;
 
 /**
  * @author jrobinso
  */
 public class ParsingUtils {
 
-    public static Map<Object, Color> colorCache = new WeakHashMap<Object, Color>(100);
+    public static final Map<Object, Color> colorCache = new WeakHashMap<>(100);
+
+    private static URLHelperFactory urlHelperFactory = RemoteURLHelper::new;
 
     // HTML 4.1 color table,  + orange and magenta
-    static Map<String, String> colorSymbols = new HashMap();
-
-    private static final Class defaultUrlHelperClass = RemoteURLHelper.class;
-    public static Class urlHelperClass = defaultUrlHelperClass;
+    private static Map<String, String> colorSymbols = new HashMap();
 
     static {
         colorSymbols.put("white", "FFFFFF");
@@ -75,25 +72,42 @@ public class ParsingUtils {
         colorSymbols.put("magenta", "FF00FF");
     }
 
-
+    /**
+     * @return an input stream from the given path
+     * @throws IOException
+     */
     public static InputStream openInputStream(String path)
             throws IOException {
-
-        InputStream inputStream;
-
-        if (path.startsWith("http:") || path.startsWith("https:") || path.startsWith("ftp:")) {
-            inputStream = getURLHelper(new URL(path)).openInputStream();
-        } else {
-            File file = new File(path);
-            inputStream = new FileInputStream(file);
-        }
-
-        return inputStream;
+        return openInputStream(path, null);
     }
 
-    //public static String join(String separator, Collection<String> strings) {
-    //    return join( separator, strings.toArray(new String[0]) );
-    //}
+    static private final Set<String> URL_SCHEMES = new HashSet<>(Arrays.asList("http", "ftp", "https"));
+
+    /**
+     * open an input stream from the given path and wrap the raw byte stream with a wrapper if given
+     *
+     * the wrapper will only be applied to paths that are not http, https, ftp, or file, i.e. any {@link java.nio.file.Path}
+     * using a custom filesystem plugin
+     * @param uri a uri like string
+     * @param wrapper to wrap the input stream in, may be used to implement caching or prefetching, etc
+     * @return An inputStream appropriately created from uri and conditionally wrapped with wrapper (only in certain cases)
+     * @throws IOException when stream cannot be opened against uri
+     */
+    public static InputStream openInputStream(final String uri, final Function<SeekableByteChannel, SeekableByteChannel> wrapper)
+            throws IOException {
+
+        final InputStream inputStream;
+
+        if (URL_SCHEMES.stream().anyMatch(uri::startsWith)) {
+            inputStream = getURLHelper(new URL(uri)).openInputStream();
+        } else if (!IOUtil.hasScheme(uri)) {
+            File file = new File(uri);
+            inputStream = Files.newInputStream(file.toPath());
+        } else {
+            inputStream = new SeekablePathStream(IOUtil.getPath(uri), wrapper);
+        }
+        return inputStream;
+    }
 
     public static <T> String join(String separator, Collection<T> objects) {
         if (objects.isEmpty()) {
@@ -117,17 +131,17 @@ public class ParsingUtils {
      * @return
      */
     public static <T extends Comparable> List<T> sortList(Collection<T> list) {
-        ArrayList<T> ret = new ArrayList<T>();
+        ArrayList<T> ret = new ArrayList<>();
         ret.addAll(list);
         Collections.sort(ret);
         return ret;
     }
 
     public static <T extends Comparable<T>, V> String sortedString(Map<T, V> c) {
-        List<T> t = new ArrayList<T>(c.keySet());
+        List<T> t = new ArrayList<>(c.keySet());
         Collections.sort(t);
 
-        List<String> pairs = new ArrayList<String>();
+        List<String> pairs = new ArrayList<>();
         for (T k : t) {
             pairs.add(k + "=" + c.get(k));
         }
@@ -182,7 +196,7 @@ public class ParsingUtils {
      */
     public static List<String> split(String input, char delim) {
         if (input.isEmpty()) return Arrays.asList("");
-        final ArrayList<String> output = new ArrayList<String>(1+input.length()/2);
+        final ArrayList<String> output = new ArrayList<>(1 + input.length() / 2);
         int from = -1, to;
         for (to = input.indexOf(delim);
              to >= 0;
@@ -400,56 +414,42 @@ public class ParsingUtils {
             }
             URLHelper helper = getURLHelper(url);
             return helper.exists();
+        } else if (IOUtil.hasScheme(resource)) {
+            return Files.exists(IOUtil.getPath(resource));
         } else {
             return (new File(resource)).exists();
         }
     }
 
     /**
-     * Return the registered URLHelper, constructed with the provided URL
-     * @see #registerHelperClass(Class)
+     * Return a URLHelper from the current URLHelperFactory
+     * @see #setURLHelperFactory(URLHelperFactory) 
+     *
      * @param url
      * @return
      */
     public static URLHelper getURLHelper(URL url) {
-        try {
-            return getURLHelper(urlHelperClass, url);
-        } catch (Exception e) {
-            return getURLHelper(defaultUrlHelperClass, url);
-        }
-    }
-
-    private static URLHelper getURLHelper(Class helperClass, URL url) {
-        try {
-            Constructor constr = helperClass.getConstructor(URL.class);
-            return (URLHelper) constr.newInstance(url);
-        } catch (Exception e) {
-            String errMsg = "Error instantiating url helper for class: " + helperClass;
-            throw new IllegalStateException(errMsg, e);
-        }
+            return urlHelperFactory.getHelper(url);
     }
 
     /**
-     * Register a {@code URLHelper} class to be used for URL operations. The helper
-     * may be used for both FTP and HTTP operations, so if any FTP URLs are used
-     * the {@code URLHelper} must support it.
+     * Set the factory object for providing URLHelpers.  {@see URLHelperFactory}.
      *
-     * The default helper class is {@link RemoteURLHelper}, which delegates to FTP/HTTP
-     * helpers as appropriate.
-     *
-     * @see URLHelper
-     * @param helperClass Class which implements {@link URLHelper}, and have a constructor
-     *                    which takes a URL as it's only argument.
+     * @param factory
      */
-    public static void registerHelperClass(Class helperClass) {
-        if (!URLHelper.class.isAssignableFrom(helperClass)) {
-            throw new IllegalArgumentException("helperClass must implement URLHelper");
-            //TODO check that it has 1 arg constructor of proper type
+    public static void setURLHelperFactory(URLHelperFactory factory) {
+        if(factory == null) {
+            throw new NullPointerException("Null URLHelperFactory");
         }
-        urlHelperClass = helperClass;
+        urlHelperFactory = factory;
+    }
+
+    public static URLHelperFactory getURLHelperFactory() {
+        return urlHelperFactory;
     }
 
     /**
+     *
      * Add the {@code indexExtension} to the {@code filepath}, preserving
      * query string elements if present. Intended for use where {@code filepath}
      * is a URL. Will behave correctly on regular file paths (just add the extension

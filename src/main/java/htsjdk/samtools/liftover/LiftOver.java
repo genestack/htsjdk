@@ -25,12 +25,10 @@ package htsjdk.samtools.liftover;
 
 import htsjdk.samtools.SAMException;
 import htsjdk.samtools.SAMSequenceDictionary;
-import htsjdk.samtools.util.IOUtil;
-import htsjdk.samtools.util.Interval;
-import htsjdk.samtools.util.Log;
-import htsjdk.samtools.util.OverlapDetector;
+import htsjdk.samtools.util.*;
 
 import java.io.File;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -38,6 +36,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
 
 /**
  * Java port of UCSC liftOver.  Only the most basic liftOver functionality is implemented.
@@ -54,13 +53,49 @@ public class LiftOver {
     private final OverlapDetector<Chain> chains;
     private final Map<String, Set<String>> contigMap = new HashMap<>();
 
+    private boolean logFailedIntervals = true;
+    private long totalFailedIntervalsBelowThreshold = 0L;
+
+    /**
+     * By default any lifted interval that falls below liftOverMinMatch
+     * will be logged.  Set this to false to prevent logging.
+     * @param logFailedIntervals
+     */
+    public void setShouldLogFailedIntervalsBelowThreshold(boolean logFailedIntervals) {
+        this.logFailedIntervals = logFailedIntervals;
+    }
+
+    /**
+     * Resets the internal counter that tracks intervals that failed liftover due to insufficient intersection length
+     */
+    public void resetFailedIntervalsBelowThresholdCounter() {
+        this.totalFailedIntervalsBelowThreshold = 0L;
+    }
+
+    /**
+     *
+     * @return The total number of intervals that have failed liftover due to insufficient intersection length
+     */
+    public long getFailedIntervalsBelowThreshold() {
+        return totalFailedIntervalsBelowThreshold;
+    }
+
     /**
      * Load UCSC chain file in order to lift over Intervals.
      */
-    public LiftOver(File chainFile) {
-        IOUtil.assertFileIsReadable(chainFile);
-        chains = Chain.loadChains(chainFile);
+    public LiftOver(File chainFile){
+        this(Chain.loadChains(chainFile));
+    }
 
+    /**
+     * Load UCSC chain file in order to lift over Intervals.
+     */
+    public LiftOver(InputStream chainFileInputStream, String sourceName) {
+        this(Chain.loadChains(new BufferedLineReader(chainFileInputStream), sourceName));
+    }
+
+    private LiftOver(OverlapDetector<Chain> chains) {
+        this.chains = chains;
         for (final Chain chain : this.chains.getAll()) {
             final String from = chain.fromSequenceName;
             final String to   = chain.toSequenceName;
@@ -115,6 +150,7 @@ public class LiftOver {
         double minMatchSize = liftOverMinMatch * interval.length();
 
         // Find the appropriate Chain, and the part of the chain corresponding to the interval to be lifted over.
+        boolean hasOverlapBelowThreshold = false;
         for (final Chain chain : chains.getOverlaps(interval)) {
             final TargetIntersection candidateIntersection = targetIntersection(chain, interval);
             if (candidateIntersection != null && candidateIntersection.intersectionLength >= minMatchSize) {
@@ -125,13 +161,20 @@ public class LiftOver {
                 chainHit = chain;
                 targetIntersection = candidateIntersection;
             } else if (candidateIntersection != null) {
-                LOG.info("Interval " + interval.getName() + " failed to match chain " + chain.id +
-                " because intersection length " + candidateIntersection.intersectionLength + " < minMatchSize "
-                + minMatchSize +
-                " (" + (candidateIntersection.intersectionLength/(float)interval.length()) + " < " + liftOverMinMatch + ")");
+                hasOverlapBelowThreshold = true;
+                if (logFailedIntervals) {
+                    LOG.info("Interval " + interval.getName() + " failed to match chain " + chain.id +
+                            " because intersection length " + candidateIntersection.intersectionLength + " < minMatchSize "
+                            + minMatchSize +
+                            " (" + (candidateIntersection.intersectionLength/(float)interval.length()) + " < " + liftOverMinMatch + ")");
+                }
             }
         }
         if (chainHit == null) {
+            if (hasOverlapBelowThreshold) {
+                totalFailedIntervalsBelowThreshold++;
+            }
+
             // Can't be lifted over.
             return null;
         }
@@ -311,7 +354,7 @@ public class LiftOver {
                 // Matched a chain, but entirely within a gap.
                 return fromInterval.toString() + " (len " + fromInterval.length() + ")=>null using chain " + chainId;
             }
-            final String strand = toInterval.isNegativeStrand()? "-": "+";
+            final String strand = toInterval.getStrand().encode();
             return fromInterval.toString() + " (len " + fromInterval.length() + ")=>" + toInterval + "(" + strand
                     + ") using chain " + chainId + " ; pct matched " + percentLiftedOver;
         }

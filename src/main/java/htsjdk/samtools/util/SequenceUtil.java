@@ -23,15 +23,10 @@
  */
 package htsjdk.samtools.util;
 
-import htsjdk.samtools.AlignmentBlock;
-import htsjdk.samtools.Cigar;
-import htsjdk.samtools.CigarElement;
-import htsjdk.samtools.CigarOperator;
-import htsjdk.samtools.SAMException;
-import htsjdk.samtools.SAMRecord;
-import htsjdk.samtools.SAMSequenceDictionary;
-import htsjdk.samtools.SAMSequenceRecord;
-import htsjdk.samtools.SAMTag;
+import htsjdk.samtools.*;
+import htsjdk.samtools.fastq.FastqConstants;
+import htsjdk.tribble.annotation.Strand;
+import htsjdk.utils.ValidationUtils;
 
 import java.io.File;
 import java.math.BigInteger;
@@ -40,6 +35,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Random;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -49,20 +45,41 @@ public class SequenceUtil {
 
     public static final byte[] VALID_BASES_UPPER = new byte[]{A, C, G, T};
     public static final byte[] VALID_BASES_LOWER = new byte[]{a, c, g, t};
+    private static final byte[] ACGTN_BASES = new byte[]{A, C, G, T, N};
+    private static final String IUPAC_CODES_STRING = ".aAbBcCdDgGhHkKmMnNrRsStTvVwWyY";
+    /**
+     * A set of bases supported by BAM in reads, see http://samtools.github.io/hts-specs/SAMv1.pdf chapter 4.2 on 'seq' field.
+     * Effectively these are upper cased IUPAC codes with equals sign ('=') and without dot ('.').
+     */
+    private static final byte[] BAM_READ_BASE_SET = "=ABCDGHKMNRSTVWY".getBytes();
+
+    private static final int BASES_ARRAY_LENGTH = 127;
+    private static final int SHIFT_TO_LOWER_CASE = a - A;
+    /**
+     * A lookup table to find a corresponding BAM read base.
+     */
+    private static final byte[] bamReadBaseLookup = new byte[BASES_ARRAY_LENGTH];
+    static {
+        Arrays.fill(bamReadBaseLookup, N);
+        for (final byte base: BAM_READ_BASE_SET) {
+            bamReadBaseLookup[base] = base;
+            bamReadBaseLookup[base + SHIFT_TO_LOWER_CASE] = base;
+        }
+    }
 
     private static final byte A_MASK = 1;
     private static final byte C_MASK = 2;
     private static final byte G_MASK = 4;
     private static final byte T_MASK = 8;
 
-    private static final byte[] bases = new byte[127];
-
+    private static final byte[] bases = new byte[BASES_ARRAY_LENGTH];
+    private static final byte NON_IUPAC_CODE = 0;
     /*
      * Definition of IUPAC codes:
      * http://www.bioinformatics.org/sms2/iupac.html
      */
     static {
-        Arrays.fill(bases, (byte) 0);
+        Arrays.fill(bases, NON_IUPAC_CODE);
         bases[A] = A_MASK;
         bases[C] = C_MASK;
         bases[G] = G_MASK;
@@ -80,7 +97,7 @@ public class SequenceUtil {
         bases['N'] = A_MASK | C_MASK | G_MASK | T_MASK;
         // Also store the bases in lower case
         for (int i = 'A'; i <= 'Z'; i++) {
-            bases[(byte) i + 32] = bases[(byte) i];
+            bases[(byte) i + SHIFT_TO_LOWER_CASE] = bases[(byte) i];
         }
         bases['.'] = A_MASK | C_MASK | G_MASK | T_MASK;
     };
@@ -105,6 +122,12 @@ public class SequenceUtil {
      * without considering the set relationships between ambiguous codes.
      */
     public static boolean basesEqual(final byte lhs, final byte rhs) {
+        if (lhs < 0 || lhs >= BASES_ARRAY_LENGTH) {
+            return false;
+        }
+        if (rhs < 0 || rhs >= BASES_ARRAY_LENGTH) {
+            return false;
+        }
         return (bases[lhs] == bases[rhs]);
     }
 
@@ -119,6 +142,13 @@ public class SequenceUtil {
      * Since the comparison is directional, make sure to pass read / ref codes in correct order.
      */
     public static boolean readBaseMatchesRefBaseWithAmbiguity(final byte readBase, final byte refBase) {
+        if (readBase < 0 || readBase >= BASES_ARRAY_LENGTH) {
+            return false;
+        }
+        if (refBase < 0 || refBase >= BASES_ARRAY_LENGTH) {
+            return false;
+        }
+
         return (bases[readBase] & bases[refBase]) == bases[readBase];
     }
 
@@ -141,15 +171,48 @@ public class SequenceUtil {
         return false;
     }
 
-    /** Calculates the fraction of bases that are G/C in the sequence. */
+    /**
+     * Check if the given base is one of upper case ACGTN */
+    public static boolean isUpperACGTN(final byte base) {
+        return isValidBase(base, ACGTN_BASES);
+    }
+
+
+    /** Returns all IUPAC codes as a string */
+    public static String getIUPACCodesString() {
+        return IUPAC_CODES_STRING;
+    }
+
+    /** Checks if the given base is a IUPAC code */
+    public static boolean isIUPAC(final byte base) {
+        if (base >= BASES_ARRAY_LENGTH || base < 0) {
+            return false;
+        }
+        return bases[base] != NON_IUPAC_CODE;
+    }
+
+    /** Calculates the fraction of bases that are G/C in the sequence */
     public static double calculateGc(final byte[] bases) {
         int gcs = 0;
-        for (int i = 0; i < bases.length; ++i) {
-            final byte b = bases[i];
-            if (b == 'C' || b == 'G' || b == 'c' || b == 'g') ++gcs;
+        for (final byte b : bases) {
+            if (b == 'C' || b == 'G' || b == 'c' || b == 'g') {
+                ++gcs;
+            }
         }
 
         return gcs / (double) bases.length;
+    }
+
+    /** Check if the given base belongs to BAM read base set '=ABCDGHKMNRSTVWY' */
+    public static boolean isBamReadBase(final byte base) {
+        return isValidBase(base, BAM_READ_BASE_SET);
+    }
+
+    /** Update and return the given array of bases by upper casing and then replacing all non-BAM read bases with N */
+    public static byte[] toBamReadBasesInPlace(final byte[] bases) {
+        for (int i = 0; i < bases.length; i++)
+            bases[i] = bamReadBaseLookup[bases[i]];
+        return bases;
     }
 
     /**
@@ -191,10 +254,10 @@ public class SequenceUtil {
             }
             for (int i = 0; i < sizeToTest; ++i) {
                 if (!s1.get(i).isSameSequence(s2.get(i))) {
-                    String s1Attrs = "";
+                    StringBuilder s1Attrs = new StringBuilder();
                     for (final java.util.Map.Entry<String, String> entry : s1.get(i)
                             .getAttributes()) {
-                        s1Attrs += "/" + entry.getKey() + "=" + entry.getValue();
+                        s1Attrs.append("/").append(entry.getKey()).append("=").append(entry.getValue());
                     }
                     String s2Attrs = "";
                     for (final java.util.Map.Entry<String, String> entry : s2.get(i)
@@ -620,32 +683,7 @@ public class SequenceUtil {
         }
     }
 
-    /** Reverses and complements the bases in place. */
-    public static void reverseComplement(final byte[] bases) {
-        final int lastIndex = bases.length - 1;
 
-        int i, j;
-        for (i = 0, j = lastIndex; i < j; ++i, --j) {
-            final byte tmp = complement(bases[i]);
-            bases[i] = complement(bases[j]);
-            bases[j] = tmp;
-        }
-        if (bases.length % 2 == 1) {
-            bases[i] = complement(bases[i]);
-        }
-    }
-
-    /** Reverses the quals in place. */
-    public static void reverseQualities(final byte[] quals) {
-        final int lastIndex = quals.length - 1;
-
-        int i, j;
-        for (i = 0, j = lastIndex; i < j; ++i, --j) {
-            final byte tmp = quals[i];
-            quals[i] = quals[j];
-            quals[j] = tmp;
-        }
-    }
 
     /**
      * Returns true if the bases are equal OR if the mismatch can be accounted for by
@@ -836,6 +874,16 @@ public class SequenceUtil {
         return ret;
     }
 
+    /** Reverses and complements the bases in place. */
+    public static void reverseComplement(final byte[] bases) {
+        reverseComplement(bases, 0, bases.length);
+    }
+
+    /** Reverses the quals in place. */
+    public static void reverseQualities(final byte[] quals) {
+        reverse(quals, 0, quals.length);
+    }
+
     public static void reverse(final byte[] array, final int offset, final int len) {
         final int lastIndex = len - 1;
 
@@ -864,15 +912,24 @@ public class SequenceUtil {
         }
     }
 
-    public static String calculateMD5String(final byte[] data)
-            throws NoSuchAlgorithmException {
+    public static String calculateMD5String(final byte[] data) {
         return SequenceUtil.calculateMD5String(data, 0, data.length);
     }
 
     public static String calculateMD5String(final byte[] data, final int offset, final int len) {
         final byte[] digest = calculateMD5(data, offset, len);
+        return md5DigestToString(digest);
+    }
+
+    /**
+     * Convets the result of an md5Digest to a string
+     * @param digest digest that needs to be converted to a string
+     * @return string representing the md5
+     */
+    public static String md5DigestToString(final byte[] digest) {
         return String.format("%032x", new BigInteger(1, digest));
     }
+
 
     public static byte[] calculateMD5(final byte[] data, final int offset, final int len) {
         final MessageDigest md5_MessageDigest;
@@ -1020,12 +1077,45 @@ public class SequenceUtil {
 
         // NOTE: the while loop isn't necessarily the most efficient way to handle this but we don't
         // expect this to ever happen more than once, just trapping pathological cases
-        while ((readName.endsWith("/1") || readName.endsWith("/2"))) {
+        while ((readName.endsWith(FastqConstants.FIRST_OF_PAIR) || readName.endsWith(FastqConstants.SECOND_OF_PAIR))) {
             // If this is an unpaired run we want to make sure that "/1" isn't tacked on the end of the read name,
             // as this can cause problems down the road (ex. in Picard's MergeBamAlignment).
             readName = readName.substring(0, readName.length() - 2);
         }
 
         return readName;
+    }
+
+    /**
+     *  Returns an array of bytes containing random DNA bases
+     *
+     * @param random A {@link Random} object to use for drawing randomw bases
+     * @param length How many bases to return.
+     * @return an array of random DNA bases of the requested length.
+     */
+    static public byte[] getRandomBases(Random random, final int length) {
+        ValidationUtils.validateArg(length >= 0, "length must be non-negative");
+        final byte[] bases = new byte[length];
+        getRandomBases(random, length, bases);
+        return bases;
+    }
+
+    /**
+     * Fills an array of bytes with random DNA bases. Will overwrite
+     * first {@code length} byte with new bases. if {@code length} is
+     * less than the size of the input array, the remaining bases will
+     * not be modified.
+     *
+     * @param random A {@link Random} object to use for drawing random bases
+     * @param length How many bases to return.
+     * @param bases  Array to use for bases (from index 0)
+     */
+    static public void getRandomBases(Random random, final int length, final byte[] bases) {
+        ValidationUtils.validateArg(length >= 0, "length must be non-negative");
+        ValidationUtils.validateArg(length <= bases.length, "length must no larger than size of input array");
+
+        for (int i = 0; i < length; ++i) {
+            bases[i] = VALID_BASES_UPPER[random.nextInt(VALID_BASES_UPPER.length)];
+        }
     }
 }

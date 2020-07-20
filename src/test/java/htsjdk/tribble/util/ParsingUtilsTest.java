@@ -1,12 +1,17 @@
 package htsjdk.tribble.util;
 
 
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
+import htsjdk.HtsjdkTest;
+import htsjdk.samtools.util.IOUtil;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.ArrayList;
+import java.io.*;
+import java.nio.file.FileSystem;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 
@@ -14,7 +19,7 @@ import java.util.List;
 /**
  * Parsing utils tests
  */
-public class ParsingUtilsTest {
+public class ParsingUtilsTest extends HtsjdkTest {
 
     static final String AVAILABLE_FTP_URL = "ftp://ftp.broadinstitute.org/pub/igv/TEST/test.txt";
     static final String UNAVAILABLE_FTP_URL = "ftp://www.example.com/file.txt";
@@ -118,11 +123,42 @@ public class ParsingUtilsTest {
     }
 
     @Test
+    public void testFileDoesExist() throws IOException{
+        File tempFile = File.createTempFile(getClass().getSimpleName(), ".tmp");
+        tempFile.deleteOnExit();
+        tstExists(tempFile.getAbsolutePath(), true);
+        tstExists(tempFile.toURI().toString(), true);
+    }
+
+    @Test
+    public void testFileDoesNotExist() throws IOException{
+        File tempFile = File.createTempFile(getClass().getSimpleName(), ".tmp");
+        tempFile.delete();
+        tstExists(tempFile.getAbsolutePath(), false);
+        tstExists(tempFile.toURI().toString(), false);
+    }
+
+    @Test
+    public void testInMemoryNioFileDoesExist() throws IOException{
+        FileSystem fs = Jimfs.newFileSystem(Configuration.unix());
+        Path file = fs.getPath("/file");
+        Files.createFile(file);
+        tstExists(file.toUri().toString(), true);
+    }
+
+    @Test
+    public void testInMemoryNioFileDoesNotExist() throws IOException{
+        FileSystem fs = Jimfs.newFileSystem(Configuration.unix());
+        Path file = fs.getPath("/file");
+        tstExists(file.toUri().toString(), false);
+    }
+
+    @Test(groups = "ftp")
     public void testFTPDoesExist() throws IOException{
         tstExists(AVAILABLE_FTP_URL, true);
     }
 
-    @Test
+    @Test(groups = "ftp")
     public void testFTPNotExist() throws IOException{
         tstExists(UNAVAILABLE_FTP_URL, false);
     }
@@ -143,6 +179,26 @@ public class ParsingUtilsTest {
     }
 
     @Test
+    public void testFileOpenInputStream() throws IOException{
+        File tempFile = File.createTempFile(getClass().getSimpleName(), ".tmp");
+        tempFile.deleteOnExit();
+        OutputStream os = IOUtil.openFileForWriting(tempFile);
+        BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(os));
+        writer.write("hello");
+        writer.close();
+        tstStream(tempFile.getAbsolutePath());
+        tstStream(tempFile.toURI().toString());
+    }
+
+    @Test
+    public void testInMemoryNioFileOpenInputStream() throws IOException{
+        FileSystem fs = Jimfs.newFileSystem(Configuration.unix());
+        Path file = fs.getPath("/file");
+        Files.write(file, "hello".getBytes("UTF-8"));
+        tstStream(file.toUri().toString());
+    }
+
+    @Test(groups = "ftp")
     public void testFTPOpenInputStream() throws IOException{
         tstStream(AVAILABLE_FTP_URL);
     }

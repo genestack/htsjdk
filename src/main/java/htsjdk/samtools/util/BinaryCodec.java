@@ -35,6 +35,8 @@ import java.io.OutputStream;
 import java.io.SyncFailedException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * Encapsulates file representation of various primitive data types.  Forces little-endian disk representation.
@@ -91,29 +93,41 @@ public class BinaryCodec implements Closeable {
     //////////////////////////////////////////////////
 
     /**
-     * Constructs BinaryCodec from a file and set it's mode to writing or not
+     * Constructs BinaryCodec from a file and set its mode to writing or not
+     *
+     * @param path    file to be written to or read from
+     * @param writing whether the file is being written to
+     */
+    public BinaryCodec(final Path path, final boolean writing) {
+        this();
+        try {
+            this.isWriting = writing;
+            if (this.isWriting) {
+                this.outputStream = IOUtil.maybeBufferOutputStream(Files.newOutputStream(path));
+                this.outputFileName = path.getFileName().toString();
+            } else {
+                this.inputStream = IOUtil.maybeBufferInputStream(Files.newInputStream(path));
+                this.inputFileName = path.getFileName().toString();
+            }
+        } catch (FileNotFoundException e) {
+            throw new RuntimeIOException("File not found: " + path, e);
+        } catch (IOException e) {
+            throw new RuntimeIOException("Error opening: " + path, e);
+        }
+    }
+
+    /**
+     * Constructs BinaryCodec from a file and set its mode to writing or not
      *
      * @param file    file to be written to or read from
      * @param writing whether the file is being written to
      */
     public BinaryCodec(final File file, final boolean writing) {
-        this();
-        try {
-            this.isWriting = writing;
-            if (this.isWriting) {
-                this.outputStream = IOUtil.maybeBufferOutputStream(new FileOutputStream(file));
-                this.outputFileName = file.getName();
-            } else {
-                this.inputStream = IOUtil.maybeBufferInputStream(new FileInputStream(file));
-                this.inputFileName = file.getName();
-            }
-        } catch (FileNotFoundException e) {
-            throw new RuntimeIOException("File not found: " + file, e);
-        }
+        this(IOUtil.toPath(file), writing);
     }
 
     /**
-     * Constructs BinaryCodec from a file name and set it's mode to writing or not
+     * Constructs BinaryCodec from a file name and set its mode to writing or not
      *
      * @param fileName name of the file to be written to or read from
      * @param writing  writing whether the file is being written to
@@ -401,7 +415,10 @@ public class BinaryCodec implements Closeable {
             throw new IllegalStateException("Calling read method on BinaryCodec open for write.");
         }
         try {
-            return inputStream.read(buffer, offset, length);
+            // Some implementations of InputStream do not behave well when the buffer is empty and length is zero, for
+            // example ByteArrayInputStream, so we must check for length equal to zero.
+            // See: https://bugs.java.com/view_bug.do?bug_id=6766844
+            return (length == 0) ? 0 : inputStream.read(buffer, offset, length);
         } catch (IOException e) {
             throw new RuntimeIOException(constructErrorMessage("Read error"), e);
         }
@@ -587,6 +604,7 @@ public class BinaryCodec implements Closeable {
     /**
      * Close the appropriate stream
      */
+    @Override
     public void close() {
         try {
             if (this.isWriting) {

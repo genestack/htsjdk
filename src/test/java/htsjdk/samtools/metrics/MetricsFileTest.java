@@ -24,6 +24,7 @@
 
 package htsjdk.samtools.metrics;
 
+import htsjdk.HtsjdkTest;
 import htsjdk.samtools.SAMException;
 import htsjdk.samtools.util.FormatUtil;
 import htsjdk.samtools.util.Histogram;
@@ -45,11 +46,11 @@ import java.util.Date;
  *
  * @author Tim Fennell
  */
-public class MetricsFileTest {
+public class MetricsFileTest extends HtsjdkTest {
     public enum TestEnum {One, Two, Three}
 
     public static class TestMetric extends MetricBase implements Cloneable, Serializable {
-        private static final long serialVersionUID = 1l;
+        private static final long serialVersionUID = 1L;
 
         public String    STRING_PROP;
         public Date      DATE_PROP;
@@ -96,9 +97,6 @@ public class MetricsFileTest {
 
         MetricsFile<FloatingPointMetric,Integer> file2 = writeThenReadBack(file);
         Assert.assertEquals(file, file2);
-
-
-
     }
 
     @Test
@@ -185,10 +183,13 @@ public class MetricsFileTest {
         final File TEST_DIR = new File("src/test/resources/htsjdk/samtools/metrics/");
         final File file1 = new File(TEST_DIR,"metricsOne.metrics");
         final File file2 = new File(TEST_DIR,"metricsOneCopy.metrics");
+        final File file3 = new File(TEST_DIR,"metricsOneCopyReordered.metrics");
+
         final File fileModifiedHist = new File(TEST_DIR,"metricsOneModifiedHistogram.metrics");
         final File fileModifiedMet = new File(TEST_DIR,"metricsOneModifiedMetrics.metrics");
 
         Assert.assertTrue(MetricsFile.areMetricsEqual(file1, file2));
+        Assert.assertTrue(MetricsFile.areMetricsEqual(file1, file3));
         Assert.assertTrue(MetricsFile.areMetricsEqual(file1, fileModifiedHist));
 
         Assert.assertFalse(MetricsFile.areMetricsAndHistogramsEqual(file1, fileModifiedHist));
@@ -197,17 +198,14 @@ public class MetricsFileTest {
     }
 
     /** Helper method to persist metrics to file and read them back again. */
-    private <METRIC extends MetricBase> MetricsFile<METRIC, Integer> writeThenReadBack(MetricsFile<METRIC,Integer> in) throws IOException {
+    private <METRIC extends MetricBase> MetricsFile<METRIC, Integer> writeThenReadBack(MetricsFile<METRIC, Integer> in) throws IOException {
         File f = File.createTempFile("test", ".metrics");
         f.deleteOnExit();
         FileWriter out = new FileWriter(f);
         in.write(out);
 
-        MetricsFile<METRIC,Integer> retval = new MetricsFile<METRIC,Integer>();
+        MetricsFile<METRIC, Integer> retval = new MetricsFile<METRIC,Integer>();
         retval.read(new FileReader(f));
         return retval;
     }
-
-
-
 }

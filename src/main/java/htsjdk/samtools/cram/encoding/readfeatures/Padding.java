@@ -18,6 +18,7 @@
 package htsjdk.samtools.cram.encoding.readfeatures;
 
 import java.io.Serializable;
+import java.util.Objects;
 
 /**
  * A read feature representing padding, similar to {@link htsjdk.samtools.CigarOperator#P}.
@@ -28,49 +29,41 @@ public class Padding implements Serializable, ReadFeature {
     private int length;
     public static final byte operator = 'P';
 
-    public Padding() {
-    }
-
     public Padding(final int position, final int length) {
         this.position = position;
         this.length = length;
     }
-
 
     @Override
     public byte getOperator() {
         return operator;
     }
 
+    @Override
     public int getPosition() {
         return position;
-    }
-
-    public void setPosition(final int position) {
-        this.position = position;
     }
 
     public int getLength() {
         return length;
     }
 
-    public void setLength(final int length) {
-        this.length = length;
-    }
-
-    @Override
-    public boolean equals(final Object obj) {
-        if (!(obj instanceof Padding))
-            return false;
-
-        final Padding padding = (Padding) obj;
-
-        return position == padding.position && length == padding.length;
-
-    }
-
     @Override
     public String toString() {
         return String.valueOf((char) operator) + '@' + position + '+' + length;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        final Padding padding = (Padding) o;
+        return position == padding.position &&
+                length == padding.length;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(position, length);
     }
 }

@@ -29,19 +29,20 @@ import htsjdk.samtools.seekablestream.SeekablePathStream;
 import htsjdk.samtools.seekablestream.SeekableStream;
 import htsjdk.samtools.seekablestream.SeekableStreamFactory;
 import htsjdk.samtools.sra.SRAAccession;
+import htsjdk.samtools.util.IOUtil;
 import htsjdk.samtools.util.Lazy;
 import htsjdk.samtools.util.RuntimeIOException;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.net.MalformedURLException;
-import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.file.FileSystemNotFoundException;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Describes a SAM-like resource, including its data (where the records are), and optionally an index.
@@ -86,10 +87,37 @@ public class SamInputResource {
     }
 
     /** Creates a {@link SamInputResource} reading from the provided resource, with no index. */
-    public static SamInputResource of(final File file) { return new SamInputResource(new FileInputResource(file)); }
+    public static SamInputResource of(final File file) {
+        return new SamInputResource(new FileInputResource(file));
+    }
 
     /** Creates a {@link SamInputResource} reading from the provided resource, with no index. */
-    public static SamInputResource of(final Path path) { return new SamInputResource(new PathInputResource(path)); }
+    public static SamInputResource of(final Path path) {
+
+        // in the case of named pipes and other non-seekable paths there's a bug in the implementation of
+        // java's GZIPInputStream which inappropriately uses .available() and then gets confused with the result
+        // of 0. For reference see:
+        // https://bugs.java.com/view_bug.do?bug_id=7036144
+        // https://github.com/samtools/htsjdk/pull/1077
+        // https://github.com/samtools/htsjdk/issues/898
+
+        // This still doesn't support the case where someone is creating a named pipe in a non-default
+        // file system and then using it as input and passing a GZIPed into the other end of the pipe.
+
+        // To work around this bug, we fall back to using a FileInputResource rather than a PathInputResource
+        // when we encounter a non-regular file using the default NIO filesystem (file://)
+        if (path.getFileSystem() == FileSystems.getDefault() && !Files.isRegularFile(path)) {
+            return of(path.toFile());
+        } else {
+            return new SamInputResource(new PathInputResource(path));
+        }
+    }
+
+    /** Creates a {@link SamInputResource} reading from the provided resource, with no index,
+     *  and with a wrapper to apply to the SeekableByteChannel for custom prefetching/buffering. */
+    public static SamInputResource of(final Path path, Function<SeekableByteChannel, SeekableByteChannel> wrapper) {
+        return new SamInputResource(new PathInputResource(path, wrapper));
+    }
 
     /** Creates a {@link SamInputResource} reading from the provided resource, with no index. */
     public static SamInputResource of(final InputStream inputStream) { return new SamInputResource(new InputStreamInputResource(inputStream)); }
@@ -122,6 +150,12 @@ public class SamInputResource {
     /** Updates the index to point at the provided resource, then returns itself. */
     public SamInputResource index(final Path path) {
         this.index = new PathInputResource(path);
+        return this;
+    }
+
+    /** Updates the index to point at the provided resource, with the provided wrapper, then returns itself. */
+    public SamInputResource index(final Path path, Function<SeekableByteChannel, SeekableByteChannel> wrapper) {
+        this.index = new PathInputResource(path, wrapper);
         return this;
     }
 
@@ -213,9 +247,9 @@ abstract class InputResource {
 class FileInputResource extends InputResource {
 
     final File fileResource;
-    final Lazy<SeekableStream> lazySeekableStream = new Lazy<SeekableStream>(new Lazy.LazyInitializer<SeekableStream>() {
+    final Lazy<SeekableStream> lazySeekableStream = new Lazy<>(new Supplier<SeekableStream>() {
         @Override
-        public SeekableStream make() {
+        public SeekableStream get() {
             try {
                 return new SeekableFileStream(fileResource);
             } catch (final FileNotFoundException e) {
@@ -237,7 +271,7 @@ class FileInputResource extends InputResource {
 
     @Override
     public Path asPath() {
-        return fileResource.toPath();
+        return IOUtil.toPath(fileResource);
     }
 
     @Override
@@ -251,12 +285,27 @@ class FileInputResource extends InputResource {
 
     @Override
     public SeekableStream asUnbufferedSeekableStream() {
-        return lazySeekableStream.get();
+        //if the file doesn't exist, the try to open the stream anyway because users might be expecting the exception
+        //if it not a regular file than we won't be able to seek on it, so return null
+        if (!fileResource.exists() || fileResource.isFile()) {
+            return lazySeekableStream.get();
+        } else {
+            return null;
+        }
     }
 
     @Override
     public InputStream asUnbufferedInputStream() {
-        return asUnbufferedSeekableStream();
+        final SeekableStream seekableStream = asUnbufferedSeekableStream();
+        if (seekableStream != null) {
+            return seekableStream;
+        } else {
+            try {
+                return new FileInputStream(fileResource);
+            } catch (FileNotFoundException e) {
+                throw new RuntimeIOException(e);
+            }
+        }
     }
 
     @Override
@@ -268,11 +317,12 @@ class FileInputResource extends InputResource {
 class PathInputResource extends InputResource {
 
     final Path pathResource;
-    final Lazy<SeekableStream> lazySeekableStream = new Lazy<SeekableStream>(new Lazy.LazyInitializer<SeekableStream>() {
+    final Function<SeekableByteChannel, SeekableByteChannel> wrapper;
+    final Lazy<SeekableStream> lazySeekableStream = new Lazy<>(new Supplier<SeekableStream>() {
         @Override
-        public SeekableStream make() {
+        public SeekableStream get() {
             try {
-                return new SeekablePathStream(pathResource);
+                return new SeekablePathStream(pathResource, wrapper);
             } catch (final IOException e) {
                 throw new RuntimeIOException(e);
             }
@@ -281,8 +331,14 @@ class PathInputResource extends InputResource {
 
 
     PathInputResource(final Path pathResource) {
+        this(pathResource, Function.identity());
+    }
+
+    //  wrapper applies to the SeekableByteChannel for custom prefetching/buffering.
+    PathInputResource(final Path pathResource, Function<SeekableByteChannel, SeekableByteChannel> wrapper) {
         super(Type.PATH);
         this.pathResource = pathResource;
+        this.wrapper = wrapper;
     }
 
     @Override
@@ -327,9 +383,9 @@ class PathInputResource extends InputResource {
 class UrlInputResource extends InputResource {
 
     final URL urlResource;
-    final Lazy<SeekableStream> lazySeekableStream = new Lazy<SeekableStream>(new Lazy.LazyInitializer<SeekableStream>() {
+    final Lazy<SeekableStream> lazySeekableStream = new Lazy<>(new Supplier<SeekableStream>() {
         @Override
-        public SeekableStream make() {
+        public SeekableStream get() {
             try { return SeekableStreamFactory.getInstance().getStreamFor(urlResource); }
             catch (final IOException ioe) { throw new RuntimeIOException(ioe); }
         }
@@ -348,8 +404,8 @@ class UrlInputResource extends InputResource {
     @Override
     public Path asPath() {
         try {
-            return Paths.get(urlResource.toURI());
-        } catch (URISyntaxException | IllegalArgumentException |
+            return IOUtil.getPath(urlResource.toExternalForm());
+        } catch (IOException | IllegalArgumentException |
             FileSystemNotFoundException | SecurityException e) {
             return null;
         }

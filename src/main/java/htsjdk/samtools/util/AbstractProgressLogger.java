@@ -15,12 +15,17 @@ abstract public class AbstractProgressLogger implements ProgressLoggerInterface 
     private final int n;
     private final String verb;
     private final String noun;
-    private final long startTime = System.currentTimeMillis();
+    private long startTime;
     private final NumberFormat fmt = new DecimalFormat("#,###");
     private final NumberFormat timeFmt = new DecimalFormat("00");
     private long processed = 0;
     // Set to -1 until the first record is added
     private long lastStartTime = -1;
+    private String lastChrom = null;
+    private int lastPos = 0;
+    private String lastReadName = null;
+    private long countNonIncreasing = 0;
+    final static private long PRINT_READ_NAME_THRESHOLD = 1000;
 
     /**
      * Construct an AbstractProgressLogger.
@@ -35,6 +40,7 @@ abstract public class AbstractProgressLogger implements ProgressLoggerInterface 
         this.noun = noun;
         this.verb = verb;
         this.n = n;
+        reset();
     }
 
     /**
@@ -44,30 +50,73 @@ abstract public class AbstractProgressLogger implements ProgressLoggerInterface 
      */
     abstract protected void log(String ... message);
 
-    @Override
-    public synchronized boolean record(final String chrom, final int pos) {
-	    if (this.lastStartTime == -1) this.lastStartTime = System.currentTimeMillis();
-	    if (++this.processed % this.n == 0) {
-            final long now = System.currentTimeMillis();
-            final long lastPeriodSeconds = (now - this.lastStartTime) / 1000;
-            this.lastStartTime = now;
+    private synchronized void record() {
+        final long now = System.currentTimeMillis();
+        final long lastPeriodSeconds = (now - this.lastStartTime) / 1000;
+        this.lastStartTime = now;
 
-            final long seconds = (System.currentTimeMillis() - startTime) / 1000;
-            final String elapsed   = formatElapseTime(seconds);
-            final String period    = pad(fmt.format(lastPeriodSeconds), 4);
-            final String processed = pad(fmt.format(this.processed), 13);
+        final long seconds = (now - startTime) / 1000;
+        final String elapsed   = formatElapseTime(seconds);
+        final String period    = pad(fmt.format(lastPeriodSeconds), 4);
+        final String processed = pad(fmt.format(this.processed), 13);
 
-            final String readInfo;
-            if (chrom == null) readInfo = "*/*";
-            else readInfo = chrom + ":" + fmt.format(pos);
+        final String readInfo;
+        if (this.lastChrom == null) readInfo = "*/*";
+        else readInfo = this.lastChrom + ":" + fmt.format(this.lastPos);
 
-            log(this.verb, " ", processed, " " + noun + ".  Elapsed time: ", elapsed, "s.  Time for last ", fmt.format(this.n),
-                    ": ", period, "s.  Last read position: ", readInfo);
+        final String rnInfo;
+
+        if (lastReadName != null && countNonIncreasing > PRINT_READ_NAME_THRESHOLD) {
+            rnInfo = ".  Last read name: " + lastReadName;
+        } else {
+            rnInfo = "";
+        }
+
+        final long n = (this.processed % this.n == 0) ? this.n : this.processed % this.n;
+
+        log(this.verb, " ", processed, " " + noun + ".  Elapsed time: ", elapsed, "s.  Time for last ", fmt.format(n),
+                ": ", period, "s.  Last read position: ", readInfo, rnInfo);
+    }
+
+    /**
+     * Logs the last last record if it wasn't previously logged.
+     * @return boolean true if logging was triggered, false otherwise
+     */
+    public synchronized boolean log() {
+        if (processed % this.n != 0) {
+            record();
             return true;
         }
         else {
             return false;
         }
+    }
+
+    protected synchronized boolean record(final String chrom, final int pos, final String rname) {
+        if (chrom != null && chrom.equals(lastChrom) && pos < lastPos) {
+            countNonIncreasing++;
+            if (countNonIncreasing == PRINT_READ_NAME_THRESHOLD) {
+                log("Seen many non-increasing record positions. Printing Read-names as well.");
+            }
+        } else {
+            lastChrom = chrom;
+        }
+        lastPos = pos;
+        lastReadName = rname;
+        if (lastStartTime == -1) {
+            lastStartTime = System.currentTimeMillis();
+        }
+        if (++processed % n == 0) {
+            record();
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    @Override
+    public synchronized boolean record(final String chrom, final int pos) {
+        return record(chrom, pos, null);
     }
 
     /**
@@ -77,10 +126,9 @@ abstract public class AbstractProgressLogger implements ProgressLoggerInterface 
     @Override
     public synchronized boolean record(final SAMRecord rec) {
         if (SAMRecord.NO_ALIGNMENT_REFERENCE_NAME.equals(rec.getReferenceName())) {
-            return record(null, 0);
-        }
-        else {
-            return record(rec.getReferenceName(), rec.getAlignmentStart());
+            return record(null, 0, rec.getReadName());
+        } else {
+            return record(rec.getReferenceName(), rec.getAlignmentStart(), rec.getReadName());
         }
     }
 
@@ -88,7 +136,9 @@ abstract public class AbstractProgressLogger implements ProgressLoggerInterface 
     @Override
     public boolean record(final SAMRecord... recs) {
         boolean triggered = false;
-        for (final SAMRecord rec : recs) triggered = record(rec) || triggered;
+        for (final SAMRecord rec : recs) {
+            triggered = record(rec) || triggered;
+        }
         return triggered;
     }
 
@@ -98,13 +148,26 @@ abstract public class AbstractProgressLogger implements ProgressLoggerInterface 
     /** Returns the number of seconds since progress tracking began. */
     public long getElapsedSeconds() { return (System.currentTimeMillis() - this.startTime) / 1000; }
 
+    /** Resets the start time to now and the number of records to zero. */
+    public synchronized void reset() {
+        startTime = System.currentTimeMillis();
+        processed = 0;
+        // Set to -1 until the first record is added
+        lastStartTime = -1;
+        lastChrom = null;
+        lastPos = 0;
+        lastReadName = null;
+        countNonIncreasing = 0;
+    }
+
     /** Left pads a string until it is at least the given length. */
-    private String pad (String in, final int length) {
-        while (in.length() < length) {
-            in = " " + in;
+    static String pad(final String in, final int length) {
+        final StringBuilder inBuilder = new StringBuilder(Math.max(length, in.length()));
+        while (inBuilder.length() < length - in.length()) {
+            inBuilder.append(" ");
         }
 
-        return in;
+        return inBuilder.append(in).toString();
     }
 
     /** Formats a number of seconds into hours:minutes:seconds. */

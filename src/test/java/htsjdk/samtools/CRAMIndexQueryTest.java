@@ -23,6 +23,7 @@
  */
 package htsjdk.samtools;
 
+import htsjdk.HtsjdkTest;
 import htsjdk.samtools.seekablestream.SeekableFileStream;
 import htsjdk.samtools.util.CloseableIterator;
 import org.testng.Assert;
@@ -42,7 +43,8 @@ import java.util.function.Function;
  * whatever index format (.bai or .crai converted to .bai) is available for the
  * target file.
  */
-public class CRAMIndexQueryTest {
+
+public class CRAMIndexQueryTest extends HtsjdkTest {
 
     private static final File TEST_DATA_DIR = new File("src/test/resources/htsjdk/samtools/cram");
 
@@ -71,7 +73,6 @@ public class CRAMIndexQueryTest {
         tempCRAIOut.deleteOnExit();
         createLocalCRAMAndCRAI(
                 cramQueryWithCRAI,
-                cramQueryReference,
                 cramQueryWithLocalCRAI,
                 tempCRAIOut
         );
@@ -82,7 +83,6 @@ public class CRAMIndexQueryTest {
         cramQueryReadsWithLocalCRAI.deleteOnExit();
         createLocalCRAMAndCRAI(
                 cramQueryReadsWithBAI,
-                cramQueryReadsReference,
                 cramQueryReadsWithLocalCRAI,
                 tempCRAIOut
         );
@@ -93,7 +93,6 @@ public class CRAMIndexQueryTest {
         cramQueryTestEmptyWithLocalCRAI.deleteOnExit();
         createLocalCRAMAndCRAI(
                 cramQueryTestEmptyWithBAI,
-                cramQueryReference,
                 cramQueryTestEmptyWithLocalCRAI,
                 tempCRAIOut
         );
@@ -101,19 +100,12 @@ public class CRAMIndexQueryTest {
 
     private void createLocalCRAMAndCRAI(
             final File inputCRAM,
-            final File reference,
             final File outputCRAM,
             final File outputCRAI) throws IOException
     {
         Files.copy(inputCRAM.toPath(), outputCRAM.toPath(), StandardCopyOption.REPLACE_EXISTING);
-
-        SAMFileHeader samHeader = null;
-        try (SamReader reader = SamReaderFactory.makeDefault().referenceSequence(reference).open(inputCRAM)) {
-            samHeader = reader.getFileHeader();
-        }
         try (FileOutputStream bos = new FileOutputStream(outputCRAI)) {
-            CRAMCRAIIndexer craiIndexer = new CRAMCRAIIndexer(bos, samHeader);
-            craiIndexer.writeIndex(new SeekableFileStream(outputCRAM), bos);
+            CRAMCRAIIndexer.writeIndex(new SeekableFileStream(outputCRAM), bos);
         }
     }
 
@@ -146,6 +138,38 @@ public class CRAMIndexQueryTest {
             //totally empty cram file
             {cramQueryTestEmptyWithBAI, cramQueryReadsReference, new QueryInterval(0, 1, 0), new String[]{}},
             {cramQueryTestEmptyWithLocalCRAI, cramQueryReadsReference, new QueryInterval(0, 1, 0), new String[]{}},
+
+             { new File(TEST_DATA_DIR, "mitoAlignmentStartTest.cram"),
+                     new File(TEST_DATA_DIR, "mitoAlignmentStartTest.fa"),
+                     new QueryInterval(0, 631, 631),
+                     new String[] {
+                            "IL29_4505:7:51:11752:16255#2",
+                             "IL29_4505:7:30:11521:4492#2",
+                             "IL29_4505:7:78:5750:11942#2",
+                             "IL29_4505:7:69:14718:6562#2",
+                             "IL29_4505:7:88:5383:14756#2",
+                             "IL29_4505:7:51:13987:8014#2",
+                             "IL29_4505:7:26:6292:20619#2",
+                             "IL29_4505:7:6:12278:3566#2",
+                             "IL29_4505:7:7:7226:5753#2",
+                             "IL29_4505:7:2:18466:8416#2",
+                             "IL29_4505:7:42:15538:18597#2",
+                             "IL29_4505:7:76:8383:16887#2",
+                             "IL29_4505:7:114:15293:18740#2",
+                             "IL29_4505:7:2:12262:7582#2",
+                             "IL29_4505:7:29:7803:4644#2",
+                             "IL29_4505:7:29:7816:4622#2",
+                             "IL29_4505:7:40:16979:10045#2",
+                             "IL29_4505:7:44:5928:2053#2",
+                             "IL29_4505:7:93:5878:1091#2",
+                             "IL29_4505:7:108:3637:10795#2",
+                             "IL29_4505:7:13:6479:1635#2",
+                             "IL29_4505:7:3:12568:11445#2",
+                             "IL29_4505:7:32:8719:10919#2",
+                             "IL29_4505:7:51:15171:6725#2",
+                             "IL29_4505:7:112:9674:17564#2"
+                     },
+             }
         };
     }
 
@@ -243,6 +267,12 @@ public class CRAMIndexQueryTest {
             //totally empty cram file
             {cramQueryTestEmptyWithBAI, cramQueryReadsReference, new QueryInterval(0, 1, 0), new String[]{}},
             {cramQueryTestEmptyWithLocalCRAI, cramQueryReadsReference, new QueryInterval(0, 1, 0), new String[]{}},
+
+            { new File(TEST_DATA_DIR, "mitoAlignmentStartTest.cram"),
+                    new File(TEST_DATA_DIR, "mitoAlignmentStartTest.fa"),
+                    new QueryInterval(0, 631, 656),
+                    new String[] {"IL29_4505:7:88:5383:14756#2"},
+            }
         };
     }
 
@@ -319,13 +349,13 @@ public class CRAMIndexQueryTest {
     public Object[][] multipleIntervalOverlapping() {
         return new Object[][]{
             {cramQueryWithCRAI, cramQueryReference,
-                    new QueryInterval[]{new QueryInterval(0, 100010, 100010), new QueryInterval(0, 100011, 100011)},
+                    new QueryInterval[]{new QueryInterval(0, 100009, 100009), new QueryInterval(0, 100011, 100011)},
                     new String[]{"a", "b", "c", "d", "e"}},
             {cramQueryWithLocalCRAI, cramQueryReference,
-                    new QueryInterval[]{new QueryInterval(0, 100010, 100010), new QueryInterval(0, 100011, 100011)},
+                    new QueryInterval[]{new QueryInterval(0, 100009, 100009), new QueryInterval(0, 100011, 100011)},
                     new String[]{"a", "b", "c", "d", "e"}},
             {cramQueryWithBAI, cramQueryReference,
-                    new QueryInterval[]{new QueryInterval(0, 100010, 100010), new QueryInterval(0, 100011, 100011)},
+                    new QueryInterval[]{new QueryInterval(0, 100009, 100009), new QueryInterval(0, 100011, 100011)},
                     new String[]{"a", "b", "c", "d", "e"}},
             // no matching reads
             {cramQueryReadsWithBAI, cramQueryReadsReference,
@@ -397,7 +427,7 @@ public class CRAMIndexQueryTest {
             final QueryInterval[] intervals,
             final String[] expectedNames) throws IOException
     {
-        QueryInterval[] optimizedIntervals = QueryInterval.optimizeIntervals(intervals);
+        final QueryInterval[] optimizedIntervals = QueryInterval.optimizeIntervals(intervals);
         Assert.assertTrue(optimizedIntervals.length > 1);
 
         doQueryTest(
@@ -435,7 +465,7 @@ public class CRAMIndexQueryTest {
             final QueryInterval[] intervals,
             final String[] expectedNames) throws IOException
     {
-        QueryInterval[] optimizedIntervals = QueryInterval.optimizeIntervals(intervals);
+        final QueryInterval[] optimizedIntervals = QueryInterval.optimizeIntervals(intervals);
         doQueryTest(
                 reader -> reader.queryContained(optimizedIntervals),
                 cramFileName,
@@ -532,7 +562,7 @@ public class CRAMIndexQueryTest {
             final QueryInterval[] intervals,
             final String[] expectedNames) throws IOException
     {
-        QueryInterval[] optimizedIntervals = QueryInterval.optimizeIntervals(intervals);
+        final QueryInterval[] optimizedIntervals = QueryInterval.optimizeIntervals(intervals);
         Assert.assertTrue(optimizedIntervals.length > 1);
         doQueryTest(
                 reader -> reader.queryContained(optimizedIntervals),
@@ -561,19 +591,67 @@ public class CRAMIndexQueryTest {
             final String[] expectedNames) throws IOException
     {
         doQueryTest(
-                reader -> reader.queryUnmapped(),
+                SamReader::queryUnmapped,
                 cramFileName,
                 referenceFileName,
                 expectedNames
         );
     }
 
+    @DataProvider(name = "alignmentStartQueries")
+    public Object[][] alignmentStartQueries() {
+        return new Object[][] {
+                // cram file, reference, query contig, alignment start query, number of reads with matching alignment start
+                {cramQueryWithCRAI, cramQueryReference, "20", 100013, 2},
+                {cramQueryWithLocalCRAI, cramQueryReference, "20", 100013, 2},
+                {cramQueryWithBAI, cramQueryReference, "20", 100013, 2},
+                // tests to ensure that query results on inputs that have matching reads that are followed by reads
+                // in the same container that don't match the alignment start are properly constrained to only the
+                // matching reads
+                {new File(TEST_DATA_DIR, "mitoAlignmentStartTest.cram"),
+                        new File(TEST_DATA_DIR, "mitoAlignmentStartTest.fa"),
+                        "Mito", 631, 24},
+                {new File(TEST_DATA_DIR, "mitoAlignmentStartTestGATKGen.cram"),
+                        new File(TEST_DATA_DIR, "mitoAlignmentStartTest.fa"),
+                        "Mito", 631, 24},
+        };
+    }
+
+    @Test(dataProvider="alignmentStartQueries")
+    public void testQueryAlignmentStart(
+            final File cramFileName,
+            final File referenceFileName,
+            final String queryContig,
+            final int alignmentStart,
+            final int expectedReadCount) throws IOException {
+        SamReaderFactory factory = SamReaderFactory.makeDefault().validationStringency(ValidationStringency.LENIENT);
+        if (referenceFileName != null) {
+            factory = factory.referenceSequence(referenceFileName);
+        }
+        try (final SamReader reader = factory.open(cramFileName);
+             final CloseableIterator<SAMRecord> it = reader.queryAlignmentStart(queryContig, alignmentStart)) {
+            int count = 0;
+            while (it.hasNext()) {
+                it.next();
+                count++;
+            }
+            Assert.assertEquals(count, expectedReadCount);
+        }
+    }
+
     @DataProvider(name = "mateQueries")
     public Object[][] mateQueries() {
         return new Object[][] {
-                {cramQueryWithCRAI, cramQueryReference, "f"},
-                {cramQueryWithLocalCRAI, cramQueryReference, "f"},
-                {cramQueryWithBAI, cramQueryReference, "f"}
+                // cram, reference, query contig, query start, name of read mates at alignment start
+                {cramQueryWithCRAI, cramQueryReference, "20", 100013, "f"},
+                {cramQueryWithLocalCRAI, cramQueryReference, "20", 100013, "f"},
+                {cramQueryWithBAI, cramQueryReference, "20", 100013, "f"},
+                {new File(TEST_DATA_DIR, "mitoAlignmentStartTest.cram"),
+                        new File(TEST_DATA_DIR, "mitoAlignmentStartTest.fa"),
+                        "Mito", 631, "IL29_4505:7:30:11521:4492#2"},
+                {new File(TEST_DATA_DIR, "mitoAlignmentStartTestGATKGen.cram"),
+                        new File(TEST_DATA_DIR, "mitoAlignmentStartTest.fa"),
+                        "Mito", 631, "IL29_4505:7:30:11521:4492#2"},
         };
     }
 
@@ -581,33 +659,36 @@ public class CRAMIndexQueryTest {
     public void testQueryMate(
         final File cramFileName,
         final File referenceFileName,
-        final String expectedName) throws IOException
+        final String queryContig,
+        final int alignmentStart,
+        final String expectedReadName) throws IOException
     {
-        SamReaderFactory factory = SamReaderFactory.makeDefault();
+        // the test file ("mitoAlignmentStartTest.cram") used here, which was provided by a user who reported
+        // a queryMate bug, contains reads that have a mateReferenceName == "*", but with mateAlignmentStart != 0;
+        // so we have to use ValidationStringency.LENIENT to suppress validation from throwing when it sees these..
+        SamReaderFactory factory = SamReaderFactory.makeDefault().validationStringency(ValidationStringency.LENIENT);
         if (referenceFileName != null) {
             factory = factory.referenceSequence(referenceFileName);
         }
-        SAMRecord firstRecord = null;
-        SAMRecord secondRecord = null;
+        SAMRecord firstRecord;
+        SAMRecord firstRecordMate;
         try (final SamReader reader = factory.open(cramFileName)) {
-            final CloseableIterator<SAMRecord> it = reader.queryAlignmentStart("20", 100013);
+            final CloseableIterator<SAMRecord> it = reader.queryAlignmentStart(queryContig, alignmentStart);
             Assert.assertTrue(it.hasNext());
             firstRecord = it.next();
-            Assert.assertTrue(it.hasNext());
-            secondRecord = it.next();
-            Assert.assertFalse(it.hasNext());
+            Assert.assertEquals(firstRecord.getReadName(), expectedReadName);
         }
 
         // get the mate for the first record
         try (final SamReader reader = factory.open(cramFileName)) {
-            final SAMRecord samRecord = reader.queryMate(firstRecord);
-            Assert.assertEquals(samRecord, secondRecord);
+            firstRecordMate = reader.queryMate(firstRecord);
+            Assert.assertEquals(firstRecordMate.getReadName(), firstRecord.getReadName());
         }
 
         // now query the mate's mate to ensure we get symmetric results
         try (final SamReader reader = factory.open(cramFileName)) {
-            final SAMRecord samRecord = reader.queryMate(secondRecord);
-            Assert.assertEquals(samRecord, firstRecord);
+            final SAMRecord matesMate = reader.queryMate(firstRecordMate);
+            Assert.assertEquals(matesMate, firstRecord);
         }
     }
 
@@ -617,7 +698,7 @@ public class CRAMIndexQueryTest {
         final File referenceFileName,
         final String[] expectedNames) throws IOException
     {
-        SamReaderFactory factory = SamReaderFactory.makeDefault();
+        SamReaderFactory factory = SamReaderFactory.makeDefault().validationStringency(ValidationStringency.LENIENT);
         if (referenceFileName != null) {
             factory = factory.referenceSequence(referenceFileName);
         }
@@ -625,7 +706,7 @@ public class CRAMIndexQueryTest {
              final CloseableIterator<SAMRecord> it = getIterator.apply(reader)) {
             int count = 0;
             while (it.hasNext()) {
-                SAMRecord samRec = it.next();
+                final SAMRecord samRec = it.next();
                 Assert.assertTrue(count < expectedNames.length);
                 Assert.assertEquals(samRec.getReadName(), expectedNames[count]);
                 count++;
@@ -652,8 +733,7 @@ public class CRAMIndexQueryTest {
     @Test(dataProvider="iteratorStateTests", expectedExceptions=SAMException.class, enabled=false)
     public void testIteratorState(
             final File cramFileName,
-            final File referenceFileName,
-            final int expectedCount) throws IOException
+            final File referenceFileName) throws IOException
     {
         SamReaderFactory factory = SamReaderFactory.makeDefault();
         if (referenceFileName != null) {
@@ -685,7 +765,7 @@ public class CRAMIndexQueryTest {
     }
 
     @Test(dataProvider = "unmappedSliceTest")
-    private void testUnmappedMultiSlice(
+    public void testUnmappedMultiSlice(
             final File cramFileName,
             final File referenceFileName,
             final int expectedCount) throws IOException

@@ -1,7 +1,7 @@
 /*
  * The MIT License (MIT)
  *
- * Copyright (c) 2015 Daniel Gómez-Sánchez
+ * Copyright (c) 2015 Daniel Gomez-Sanchez
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,6 +24,7 @@
 
 package htsjdk.samtools.util;
 
+import htsjdk.HtsjdkTest;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -33,7 +34,7 @@ import java.io.OutputStream;
 /**
  * @author Daniel Gomez-Sanchez (magicDGS)
  */
-public class PositionalOutputStreamTest {
+public class PositionalOutputStreamTest extends HtsjdkTest {
 
     @Test
     public void basicPositionTest() throws Exception {

@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright (c) 2009 The Broad Institute
+ * Copyright (c) 2009-2016 The Broad Institute
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -30,6 +30,7 @@ import htsjdk.samtools.SAMSequenceRecord;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 
 /**
  * Manages a ReferenceSequenceFile.  Loads the requested sequence, ensuring that
@@ -43,6 +44,10 @@ public class ReferenceSequenceFileWalker implements Closeable {
 
     public ReferenceSequenceFileWalker(final ReferenceSequenceFile referenceSequenceFile) {
         this.referenceSequenceFile = referenceSequenceFile;
+    }
+
+    public ReferenceSequenceFileWalker(final Path path) {
+        this(ReferenceSequenceFileFactory.getReferenceSequenceFile(path, true, false));
     }
 
     public ReferenceSequenceFileWalker(final File file) {
@@ -83,7 +88,7 @@ public class ReferenceSequenceFileWalker implements Closeable {
         }
         referenceSequence = null;
 
-        if(referenceSequenceFile.isIndexed()) {
+        if(referenceSequenceFile.isIndexed() && referenceSequenceFile.getSequenceDictionary() != null) {
             final SAMSequenceRecord samSequenceRecord = referenceSequenceFile.getSequenceDictionary().getSequence(sequenceIndex);
             if(samSequenceRecord != null) {
                 referenceSequence = referenceSequenceFile.getSequence(samSequenceRecord.getSequenceName()) ;
@@ -105,6 +110,7 @@ public class ReferenceSequenceFileWalker implements Closeable {
         return referenceSequenceFile.getSequenceDictionary();
     }
 
+    @Override
     public void close() throws IOException {
         referenceSequenceFile.close();
     }

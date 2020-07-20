@@ -17,102 +17,96 @@
  */
 package htsjdk.samtools.cram.encoding;
 
-import htsjdk.samtools.cram.encoding.huffman.codec.HuffmanByteEncoding;
-import htsjdk.samtools.cram.encoding.huffman.codec.HuffmanIntegerEncoding;
+import htsjdk.samtools.cram.encoding.core.*;
+import htsjdk.samtools.cram.encoding.core.experimental.*;
+import htsjdk.samtools.cram.encoding.external.*;
+import htsjdk.samtools.cram.structure.DataSeriesType;
+import htsjdk.samtools.cram.structure.EncodingDescriptor;
 import htsjdk.samtools.cram.structure.EncodingID;
 
 /**
- * A helper class to instantiate an appropriate {@link htsjdk.samtools.cram.encoding.Encoding}
- * for a given {@link htsjdk.samtools.cram.encoding.DataSeriesType} and
- * {@link htsjdk.samtools.cram.encoding.Encoding}.
- * Also useful to hide encoding implementations.
+ * A helper class to choose and instantiate an appropriate {@link CRAMEncoding} given a {@link DataSeriesType} and
+ * an {@link EncodingDescriptor}.
  */
-@SuppressWarnings("unchecked")
 public class EncodingFactory {
 
     /**
-     * Create an encoding for the data series type and encoding id.
+     * Use the data series value type and EncodingDescriptor to instantiate a corresponding CRAMEncoding of the correct
+     * (generic) type.
+     * @param valueType
+     * @param encodingDescriptor
+     * @param <T>
+     * @return
+     */
+    public static <T> CRAMEncoding<T> createCRAMEncoding(
+            final DataSeriesType valueType,
+            final EncodingDescriptor encodingDescriptor) {
+        return createCRAMEncoding(
+                valueType,
+                encodingDescriptor.getEncodingID(),
+                encodingDescriptor.getEncodingParameters());
+    }
+
+    /**
+     * Create an encoding of the correct type for the data series type and encoding id and params.
      * @param valueType data type of the values to be produced/consumed by the encoding
-     * @param id encoding id used for data serialization
+     * @param encodingID encoding id used for data serialization
+     * @param params encoding initialization values
      * @param <T> encoding object type, like Integer or String.
      * @return a new encoding with the requested parameters
      */
-    public <T> Encoding<T> createEncoding(final DataSeriesType valueType,
-                                          final EncodingID id) {
+    public static <T> CRAMEncoding<T> createCRAMEncoding(final DataSeriesType valueType,
+                                                         final EncodingID encodingID,
+                                                         final byte[] params) {
         switch (valueType) {
             case BYTE:
-                switch (id) {
+                switch (encodingID) {
                     case EXTERNAL:
-                        return (Encoding<T>) new ExternalByteEncoding();
+                        return (CRAMEncoding<T>) ExternalByteEncoding.fromSerializedEncodingParams(params);
                     case HUFFMAN:
-                        return (Encoding<T>) new HuffmanByteEncoding();
-                    case NULL:
-                        return new NullEncoding<T>();
-
-                    default:
-                        break;
+                        return (CRAMEncoding<T>) CanonicalHuffmanByteEncoding.fromSerializedEncodingParams(params);
                 }
-
                 break;
 
             case INT:
-                switch (id) {
+                switch (encodingID) {
                     case HUFFMAN:
-                        return (Encoding<T>) new HuffmanIntegerEncoding();
-                    case NULL:
-                        return new NullEncoding<T>();
+                        return (CRAMEncoding<T>) CanonicalHuffmanIntegerEncoding.fromSerializedEncodingParams(params);
                     case EXTERNAL:
-                        return (Encoding<T>) new ExternalIntegerEncoding();
+                        return (CRAMEncoding<T>) ExternalIntegerEncoding.fromSerializedEncodingParams(params);
                     case GOLOMB:
-                        return (Encoding<T>) new GolombIntegerEncoding();
+                        return (CRAMEncoding<T>) GolombIntegerEncoding.fromSerializedEncodingParams(params);
                     case GOLOMB_RICE:
-                        return (Encoding<T>) new GolombRiceIntegerEncoding();
+                        return (CRAMEncoding<T>) GolombRiceIntegerEncoding.fromSerializedEncodingParams(params);
                     case BETA:
-                        return (Encoding<T>) new BetaIntegerEncoding();
+                        return (CRAMEncoding<T>) BetaIntegerEncoding.fromSerializedEncodingParams(params);
                     case GAMMA:
-                        return (Encoding<T>) new GammaIntegerEncoding();
+                        return (CRAMEncoding<T>) GammaIntegerEncoding.fromSerializedEncodingParams(params);
                     case SUBEXPONENTIAL:
-                        return (Encoding<T>) new SubexponentialIntegerEncoding();
-
-                    default:
-                        break;
+                        return (CRAMEncoding<T>) SubexponentialIntegerEncoding.fromSerializedEncodingParams(params);
                 }
-                break;
 
             case LONG:
-                switch (id) {
-                    case NULL:
-                        return new NullEncoding<T>();
+                switch (encodingID) {
                     case GOLOMB:
-                        return (Encoding<T>) new GolombLongEncoding();
+                        return (CRAMEncoding<T>) GolombLongEncoding.fromSerializedEncodingParams(params);
                     case EXTERNAL:
-                        return (Encoding<T>) new ExternalLongEncoding();
-
-                    default:
-                        break;
+                        return (CRAMEncoding<T>) ExternalLongEncoding.fromSerializedEncodingParams(params);
                 }
-                break;
 
             case BYTE_ARRAY:
-                switch (id) {
-                    case NULL:
-                        return new NullEncoding<T>();
+                switch (encodingID) {
                     case BYTE_ARRAY_LEN:
-                        return (Encoding<T>) new ByteArrayLenEncoding();
+                        return (CRAMEncoding<T>) ByteArrayLenEncoding.fromSerializedEncodingParams(params);
                     case BYTE_ARRAY_STOP:
-                        return (Encoding<T>) new ByteArrayStopEncoding();
+                        // NOTE: this uses an external block, as mandated by the spec
+                        return (CRAMEncoding<T>) ByteArrayStopEncoding.fromSerializedEncodingParams(params);
                     case EXTERNAL:
-                        return (Encoding<T>) new ExternalByteArrayEncoding();
-
-                    default:
-                        break;
+                        return (CRAMEncoding<T>) ExternalByteArrayEncoding.fromSerializedEncodingParams(params);
                 }
-                break;
-
-            default:
-                break;
         }
 
-        return null;
+        throw new IllegalArgumentException("Encoding not found: value type="
+                + valueType.name() + ", encoding id=" + encodingID.name());
     }
 }

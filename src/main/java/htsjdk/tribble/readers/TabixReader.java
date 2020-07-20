@@ -23,29 +23,34 @@
  */
 package htsjdk.tribble.readers;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.SeekableByteChannel;
 import java.util.*;
+import java.util.function.Function;
 
 import htsjdk.samtools.seekablestream.*;
 import htsjdk.samtools.util.BlockCompressedInputStream;
+import htsjdk.samtools.util.FileExtensions;
 import htsjdk.tribble.util.ParsingUtils;
-import htsjdk.tribble.util.TabixUtils;
 
 /**
  * @author Heng Li <hengli@broadinstitute.org>
  */
-public class TabixReader {
-    private String mFn;
-    private String mIdxFn;
-    private BlockCompressedInputStream mFp;
+public class TabixReader implements AutoCloseable {
+    private final String mFilePath;
+    private final String mIndexPath;
+    private final Function<SeekableByteChannel, SeekableByteChannel> mIndexWrapper;
+    private final BlockCompressedInputStream mFp;
 
     private int mPreset;
     private int mSc;
     private int mBc;
     private int mEc;
     private int mMeta;
+
     //private int mSkip; (not used)
     private String[] mSeq;
 
@@ -54,6 +59,8 @@ public class TabixReader {
     private static int MAX_BIN = 37450;
     //private static int TAD_MIN_CHUNK_GAP = 32768; (not used)
     private static int TAD_LIDX_SHIFT = 14;
+    /** default buffer size for <code>readLine()</code> */
+    private static final int DEFAULT_BUFFER_SIZE = 1000;
 
     protected static class TPair64 implements Comparable<TPair64> {
         long u, v;
@@ -68,6 +75,7 @@ public class TabixReader {
             v = p.v;
         }
 
+        @Override
         public int compareTo(final TPair64 p) {
             return u == p.u ? 0 : ((u < p.u) ^ (u < 0) ^ (p.u < 0)) ? -1 : 1; // unsigned 64-bit comparison
         }
@@ -89,31 +97,74 @@ public class TabixReader {
     }
 
     /**
-     * @param fn File name of the data file
+     * @param filePath path to the data file/uri
      */
-    public TabixReader(final String fn) throws IOException {
-        this(fn, null, SeekableStreamFactory.getInstance());
+    public TabixReader(final String filePath) throws IOException {
+        this(filePath, null, SeekableStreamFactory.getInstance().getBufferedStream(SeekableStreamFactory.getInstance().getStreamFor(filePath)));
     }
 
     /**
-     * @param fn File name of the data file
-     * @param idxFn Full path to the index file. Auto-generated if null
+     * @param filePath path to the of the data file/uri
+     * @param indexPath Full path to the index file. Auto-generated if null
      */
-    public TabixReader(final String fn, final String idxFn) throws IOException {
-        this(fn, idxFn, SeekableStreamFactory.getInstance());
+    public TabixReader(final String filePath, final String indexPath) throws IOException {
+        this(filePath, indexPath, SeekableStreamFactory.getInstance().getBufferedStream(SeekableStreamFactory.getInstance().getStreamFor(filePath)));
     }
 
-    public TabixReader(final String fn, final String idxFn, ISeekableStreamFactory factory) throws IOException {
-        mFn = fn;
-        mFp = new BlockCompressedInputStream(factory.getBufferedStream(factory.getStreamFor(fn)));
-        mIdxFn = idxFn == null ? ParsingUtils.appendToPath(fn, TabixUtils.STANDARD_INDEX_EXTENSION) : idxFn;
-        readIndex(factory);
+    /**
+     * @param filePath path to the data file/uri
+     * @param indexPath Full path to the index file. Auto-generated if null
+     * @param wrapper a wrapper to apply to the raw byte stream of the data file if is a uri representing a {@link java.nio.file.Path}
+     * @param indexWrapper a wrapper to apply to the raw byte stream of the index file if it is a uri representing a {@link java.nio.file.Path}
+     */
+    public TabixReader(final String filePath, final String indexPath,
+                       final Function<SeekableByteChannel, SeekableByteChannel> wrapper,
+                       final Function<SeekableByteChannel, SeekableByteChannel> indexWrapper) throws IOException {
+        this(filePath, indexPath, SeekableStreamFactory.getInstance().getBufferedStream(SeekableStreamFactory.getInstance().getStreamFor(filePath, wrapper)),
+                indexWrapper, SeekableStreamFactory.getInstance());
+    }
+
+
+    /**
+     * @param filePath Path to the data file  (used for error messages only)
+     * @param stream Seekable stream from which the data is read
+     */
+    public TabixReader(final String filePath, SeekableStream stream) throws IOException {
+        this(filePath, null, stream);
+    }
+
+    /**
+     * @param filePath Path to the data file  (used for error messages only)
+     * @param indexPath Full path to the index file. Auto-generated if null
+     * @param stream Seekable stream from which the data is read
+     */
+    public TabixReader(final String filePath, final String indexPath, SeekableStream stream) throws IOException {
+        this(filePath, indexPath, stream, null, SeekableStreamFactory.getInstance());
+    }
+
+    /**
+     * @param filePath Path to the data file (used for error messages only)
+     * @param indexPath Full path to the index file. Auto-generated if null
+     * @param indexWrapper a wrapper to apply to the raw byte stream of the index file if it is a uri representing a {@link java.nio.file.Path}
+     * @param stream Seekable stream from which the data is read
+     */
+    public TabixReader(final String filePath, final String indexPath, SeekableStream stream, Function<SeekableByteChannel, SeekableByteChannel> indexWrapper,
+                       final ISeekableStreamFactory ssf) throws IOException {
+        mFilePath = filePath;
+        mFp = new BlockCompressedInputStream(stream);
+        mIndexWrapper = indexWrapper;
+        if(indexPath == null){
+            mIndexPath = ParsingUtils.appendToPath(filePath, FileExtensions.TABIX_INDEX);
+        } else {
+            mIndexPath = indexPath;
+        }
+        readIndex(ssf);
     }
 
     /** return the source (filename/URL) of that reader */
     public String getSource()
         {
-        return this.mFn;
+        return this.mFilePath;
         }
 
     private static int reg2bins(final int beg, final int _end, final int[] list) {
@@ -137,13 +188,25 @@ public class TabixReader {
     }
 
     public static long readLong(final InputStream is) throws IOException {
-        byte[] buf = new byte[8];
+        final byte[] buf = new byte[8];
         is.read(buf);
         return ByteBuffer.wrap(buf).order(ByteOrder.LITTLE_ENDIAN).getLong();
     }
 
     public static String readLine(final InputStream is) throws IOException {
-        final StringBuilder buf = new StringBuilder(10000);
+        return readLine(is, DEFAULT_BUFFER_SIZE);
+    }
+
+    /**
+     * reads a line with a defined buffer-size
+     *
+     * @param is the input stream
+     * @param bufferCapacity the buffer size, must be greater than 0
+     * @return the line or null if there is no more input
+     * @throws IOException
+     */
+    private static String readLine(final InputStream is, final int bufferCapacity) throws IOException {
+        final StringBuffer buf = new StringBuffer(bufferCapacity);
         int c;
         while ((c = is.read()) >= 0 && c != '\n')
             buf.append((char) c);
@@ -151,19 +214,21 @@ public class TabixReader {
         return buf.toString();
     }
 
+
+
     /**
      * Read the Tabix index from a file
      *
      * @param fp File pointer
      */
-    private void readIndex(SeekableStream fp) throws IOException {
+    private void readIndex(final SeekableStream fp) throws IOException {
         if (fp == null) return;
-        BlockCompressedInputStream is = new BlockCompressedInputStream(fp);
+        final  BlockCompressedInputStream is = new BlockCompressedInputStream(fp);
         byte[] buf = new byte[4];
 
         is.read(buf, 0, 4); // read "TBI\1"
         mSeq = new String[readInt(is)]; // # sequences
-        mChr2tid = new HashMap<String, Integer>();
+        mChr2tid = new HashMap<String, Integer>( this.mSeq.length );
         mPreset = readInt(is);
         mSc = readInt(is);
         mBc = readInt(is);
@@ -178,9 +243,9 @@ public class TabixReader {
             if (buf[i] == 0) {
                 byte[] b = new byte[i - j];
                 System.arraycopy(buf, j, b, 0, b.length);
-                String s = new String(b);
-                mChr2tid.put(s, k);
-                mSeq[k++] = s;
+                final String contig = new String(b);
+                mChr2tid.put(contig, k);
+                mSeq[k++] = contig;
                 j = i + 1;
             }
         }
@@ -214,19 +279,19 @@ public class TabixReader {
      * Read the Tabix index from the default file.
      */
     private void readIndex(ISeekableStreamFactory ssf) throws IOException {
-        readIndex(ssf.getBufferedStream(ssf.getStreamFor(mIdxFn), 128000));
+        readIndex(ssf.getBufferedStream(ssf.getStreamFor(mIndexPath, mIndexWrapper), 128000));
     }
 
     /**
      * Read one line from the data file.
      */
     public String readLine() throws IOException {
-        return readLine(mFp);
+        return readLine(mFp, DEFAULT_BUFFER_SIZE);
     }
 
     /** return chromosome ID or -1 if it is unknown */
     public int chr2tid(final String chr) {
-        Integer tid=this.mChr2tid.get(chr);
+       final Integer tid = this.mChr2tid.get(chr);
        return tid==null?-1:tid;
     }
 
@@ -361,11 +426,10 @@ public class TabixReader {
                     ++i;
                 }
                 String s;
-                if ((s = readLine(mFp)) != null) {
+                if ((s = readLine(mFp, DEFAULT_BUFFER_SIZE)) != null) {
                     TIntv intv;
-                    char[] str = s.toCharArray();
                     curr_off = mFp.getFilePointer();
-                    if (str.length == 0 || str[0] == mMeta) continue;
+                    if (s.isEmpty() || s.charAt(0) == mMeta) continue;
                     intv = getIntv(s);
                     if (intv.tid != tid || intv.beg >= end) break; // no need to proceed
                     else if (intv.end > beg && intv.beg < end) return s; // overlap; return
@@ -377,16 +441,16 @@ public class TabixReader {
     }
 
     /**
-     * Return
-     * @param tid Sequence id
-     * @param beg beginning of interval, genomic coords
-     * @param end end of interval, genomic coords
-     * @return an iterator over the lines within the specified interval
+     * Get an iterator for an interval specified by the sequence id and begin and end coordinates
+     * @param tid Sequence id, if non-existent returns EOF_ITERATOR
+     * @param beg beginning of interval, genomic coords (0-based, closed-open)
+     * @param end end of interval, genomic coords (0-based, closed-open)
+     * @return an iterator over the specified interval
      */
     public Iterator query(final int tid, final int beg, final int end) {
         TPair64[] off, chunks;
         long min_off;
-        if(tid< 0 || tid>=this.mIndex.length) return EOF_ITERATOR;
+        if (tid < 0 || beg < 0 || end <= 0 || tid >= this.mIndex.length) return EOF_ITERATOR;
         TIndex idx = mIndex[tid];
         int[] bins = new int[MAX_BIN];
         int i, l, n_off, n_bins = reg2bins(beg, end, bins);
@@ -441,50 +505,29 @@ public class TabixReader {
      *
      * @see #parseReg(String)
      * @param reg A region string of the form acceptable by {@link #parseReg(String)}
-     * @return
+     * @return an iterator over the specified interval
      */
     public Iterator query(final String reg) {
         int[] x = parseReg(reg);
-        if(x[0]<0) return EOF_ITERATOR;
         return query(x[0], x[1], x[2]);
     }
 
     /**
-    *
+    * Get an iterator for an interval specified by the sequence id and begin and end coordinates
     * @see #parseReg(String)
     * @param reg a chromosome
     * @param start start interval
     * @param end end interval
-    * @return a tabix iterator
+    * @return a tabix iterator over the specified interval
     */
-   public Iterator query(final String reg,int start,int end) {
-       int tid=this.chr2tid(reg);
-       if(tid==-1) return EOF_ITERATOR;
+   public Iterator query(final String reg, int start, int end) {
+       int tid = this.chr2tid(reg);
        return query(tid, start, end);
    }
 
-    public static void main(String[] args) {
-        if (args.length < 1) {
-            System.out.println("Usage: java -cp .:sam.jar TabixReader <in.gz> [region]");
-            System.exit(1);
-        }
-        try {
-            TabixReader tr = new TabixReader(args[0]);
-            String s;
-            if (args.length == 1) { // no region is specified; print the whole file
-                while ((s = tr.readLine()) != null)
-                    System.out.println(s);
-            } else { // a region is specified; random access
-                TabixReader.Iterator iter = tr.query(args[1]); // get the iterator
-                while ((s = iter.next()) != null)
-                    System.out.println(s);
-            }
-        } catch (IOException e) {
-        }
-    }
-
     // ADDED BY JTR
-    public void close() {
+   @Override
+   public void close() {
         if(mFp != null) {
             try {
                 mFp.close();
@@ -494,8 +537,8 @@ public class TabixReader {
         }
     }
 
-    @Override
-    public String toString() {
+   @Override
+   public String toString() {
         return "TabixReader: filename:"+getSource();
-    }
+   }
 }

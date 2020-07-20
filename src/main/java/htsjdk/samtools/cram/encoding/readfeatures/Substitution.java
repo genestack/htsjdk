@@ -18,30 +18,49 @@
 package htsjdk.samtools.cram.encoding.readfeatures;
 
 import java.io.Serializable;
+import java.util.Objects;
 
 /**
  * A substitution event captured in read coordinates. It is characterized by position in read, read base and reference base.
  * The class is also responsible for converting combinations of read base and reference base into a byte value (code).
+ *
+ * Both reference and read bases must be ACGTN only.
  */
 public class Substitution implements Serializable, ReadFeature {
     public static final int NO_CODE = -1;
+    public static final byte operator = 'X';
 
     /**
      * zero-based position in read
      */
     private int position;
     /**
-     * The read base (ACGTN)
+     * The read base, allowed values are ACGTN.
      */
     private byte base = -1;
     /**
-     * The reference sequence base matching the position of this substitution.
+     * The reference sequence base matching the position of this substitution, allowed values are ACGTN.
      */
     private byte referenceBase = -1;
     /**
      * A byte value denoting combination of the read base and the reference base.
      */
     private byte code = NO_CODE;
+
+    // Substitutions have two manifestations; just a raw code that can be mapped to a base in a
+    // {@link SusbtitutionMatrix}, or a base and reference base that can be mapped to a code in
+    // a {@link SusbtitutionMatrix}
+    public Substitution(final int position, final byte code) {
+        this.position = position;
+        this.code = code;
+    }
+
+    public Substitution(int position, byte base, byte referenceBase) {
+        this.position = position;
+        this.base = base;
+        this.referenceBase = referenceBase;
+        this.code = NO_CODE;
+    }
 
     public byte getCode() {
         return code;
@@ -51,35 +70,22 @@ public class Substitution implements Serializable, ReadFeature {
         this.code = code;
     }
 
-    public static final byte operator = 'X';
-
     @Override
     public byte getOperator() {
         return operator;
     }
 
+    @Override
     public int getPosition() {
         return position;
-    }
-
-    public void setPosition(final int position) {
-        this.position = position;
     }
 
     public byte getBase() {
         return base;
     }
 
-    public void setBase(final byte base) {
-        this.base = base;
-    }
-
     public byte getReferenceBase() {
         return referenceBase;
-    }
-
-    public void setReferenceBase(final byte referenceBase) {
-        this.referenceBase = referenceBase;
     }
 
     @Override
@@ -101,6 +107,14 @@ public class Substitution implements Serializable, ReadFeature {
             if (base != substitution.base) return false;
         }
         return true;
+    }
+
+    @Override
+    public int hashCode() {
+        if (code == NO_CODE) {
+            return Objects.hash(position);
+        }
+        return Objects.hash(position, base, referenceBase);
     }
 
     @Override

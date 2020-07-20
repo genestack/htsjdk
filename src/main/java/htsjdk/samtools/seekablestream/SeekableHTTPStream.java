@@ -67,10 +67,12 @@ public class SeekableHTTPStream extends SeekableStream {
 
     }
 
+    @Override
     public long position() {
         return position;
     }
 
+    @Override
     public long length() {
         return contentLength;
     }
@@ -82,21 +84,27 @@ public class SeekableHTTPStream extends SeekableStream {
         return bytesToSkip;
     }
 
+    @Override
     public boolean eof() throws IOException {
         return contentLength > 0 && position >= contentLength;
     }
 
+    @Override
     public void seek(final long position) {
         this.position = position;
     }
 
+    @Override
     public int read(byte[] buffer, int offset, int len) throws IOException {
 
         if (offset < 0 || len < 0 || (offset + len) > buffer.length) {
             throw new IndexOutOfBoundsException("Offset="+offset+",len="+len+",buflen="+buffer.length);
         }
-        if (len == 0 || position == contentLength) {
+        if (len == 0 ) {
             return 0;
+        }
+        if (position == contentLength) {
+            return -1;
         }
 
         HttpURLConnection connection = null;
@@ -168,11 +176,13 @@ public class SeekableHTTPStream extends SeekableStream {
     }
 
 
+    @Override
     public void close() throws IOException {
         // Nothing to do
     }
 
 
+    @Override
     public int read() throws IOException {
     	byte []tmp=new byte[1];
     	read(tmp,0,1);

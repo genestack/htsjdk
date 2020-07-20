@@ -23,10 +23,8 @@
  */
 package htsjdk.samtools;
 
-import htsjdk.samtools.util.CloseableIterator;
-import htsjdk.samtools.util.CloserUtil;
-import htsjdk.samtools.util.StopWatch;
-import htsjdk.samtools.util.StringUtil;
+import htsjdk.HtsjdkTest;
+import htsjdk.samtools.util.*;
 import org.testng.Assert;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
@@ -46,7 +44,7 @@ import static org.testng.Assert.*;
 /**
  * Test BAM file indexing.
  */
-public class BAMFileIndexTest {
+public class BAMFileIndexTest extends HtsjdkTest {
     private final File BAM_FILE = new File("src/test/resources/htsjdk/samtools/BAMFileIndexTest/index_test.bam");
     private final boolean mVerbose = false;
 
@@ -78,9 +76,8 @@ public class BAMFileIndexTest {
     }
 
     @Test(groups = {"slow"})
-    public void testRandomQueries()
-            throws Exception {
-        runRandomTest(BAM_FILE, 1000, new Random());
+    public void testRandomQueries() throws Exception {
+        runRandomTest(BAM_FILE, 1000, new Random(TestUtil.RANDOM_SEED));
     }
 
     @Test
@@ -181,6 +178,21 @@ public class BAMFileIndexTest {
         CloserUtil.close(reader);
     }
 
+    @DataProvider(name = "queryIntervalsData")
+    public Object[][] queryIntervalsData(){
+        return new Object[][] {
+                {true, 1},
+                {false, 2}
+        };
+    }
+    @Test(dataProvider = "queryIntervalsData")
+    public void testQueryIntervals(final boolean contained, final int expected) {
+        final SamReader reader = SamReaderFactory.makeDefault().enable().open(BAM_FILE);
+
+        final CloseableIterator<SAMRecord> it = reader.query("chr1", 202661637, 202661812, contained);
+        Assert.assertEquals(countElements(it), expected);
+    }
+
     @Test
     public void testQueryMate() {
         final SamReader reader = SamReaderFactory.makeDefault().open(BAM_FILE);
@@ -237,7 +249,7 @@ public class BAMFileIndexTest {
     public void testMultiIntervalQuery(final boolean contained) {
         final List<String> referenceNames = getReferenceNames(BAM_FILE);
 
-        final QueryInterval[] intervals = generateRandomIntervals(referenceNames.size(), 1000, new Random());
+        final QueryInterval[] intervals = generateRandomIntervals(referenceNames.size(), 1000, new Random(TestUtil.RANDOM_SEED));
         final Set<SAMRecord> multiIntervalRecords = new HashSet<SAMRecord>();
         final Set<SAMRecord> singleIntervalRecords = new HashSet<SAMRecord>();
         final SamReader reader = SamReaderFactory.makeDefault().open(BAM_FILE);
@@ -286,7 +298,7 @@ public class BAMFileIndexTest {
                 "one_end_mapped\t73\tchr7\t100\t255\t101M\t*\t0\t0\tCAACAGAAGCNGGNATCTGTGTTTGTGTTTCGGATTTCCTGCTGAANNGNTTNTCGNNTCNNNNNNNNATCCCGATTTCNTTCCGCAGCTNACCTCCCAAN\t)'.*.+2,))&&'&*/)-&*-)&.-)&)&),/-&&..)./.,.).*&&,&.&&-)&&&0*&&&&&&&&/32/,01460&&/6/*0*/2/283//36868/&\tRG:Z:0\n" +
                 "one_end_mapped\t133\tchr7\t100\t0\t*\t=\t100\t0\tNCGCGGCATCNCGATTTCTTTCCGCAGCTAACCTCCCGACAGATCGGCAGCGCGTCGTGTAGGTTATTATGGTACATCTTGTCGTGCGGCNAGAGCATACA\t&/15445666651/566666553+2/14/&/555512+3/)-'/-&-'*+))*''13+3)'//++''/'))/3+&*5++)&'2+&+/*&-&&*)&-./1'1\tRG:Z:0\n";
         final ByteArrayInputStream bis = new ByteArrayInputStream(StringUtil.stringToBytes(samText));
-        final File bamFile = File.createTempFile("BAMFileIndexTest.", BamFileIoUtils.BAM_FILE_EXTENSION);
+        final File bamFile = File.createTempFile("BAMFileIndexTest.", FileExtensions.BAM);
         bamFile.deleteOnExit();
         final SamReader textReader = SamReaderFactory.makeDefault().open(SamInputResource.of(bis));
         SAMFileWriterFactory samFileWriterFactory = new SAMFileWriterFactory();

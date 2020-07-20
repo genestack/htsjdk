@@ -1,12 +1,13 @@
 package htsjdk.samtools;
 
-import htsjdk.samtools.cram.CRAIIndex;
+import htsjdk.HtsjdkTest;
 import htsjdk.samtools.cram.ref.ReferenceSource;
+import htsjdk.samtools.cram.structure.CRAMEncodingStrategy;
 import htsjdk.samtools.reference.InMemoryReferenceSequenceFile;
 import htsjdk.samtools.seekablestream.ByteArraySeekableStream;
 import htsjdk.samtools.seekablestream.SeekableStream;
 import htsjdk.samtools.util.CloseableIterator;
-import htsjdk.samtools.util.Log;
+import htsjdk.samtools.util.TestUtil;
 import org.testng.Assert;
 import org.testng.annotations.BeforeTest;
 import org.testng.annotations.Test;
@@ -22,12 +23,14 @@ import java.util.Random;
 /**
  * Created by vadim on 23/03/2015.
  */
-public class CRAMFileWriterWithIndexTest {
+public class CRAMFileWriterWithIndexTest extends HtsjdkTest {
     private byte[] cramBytes;
     private byte[] indexBytes;
     private InMemoryReferenceSequenceFile rsf;
     private ReferenceSource source;
     private SAMFileHeader header;
+
+    static private Random random = new Random(TestUtil.RANDOM_SEED);
 
     @Test
     public void test() throws IOException {
@@ -148,9 +151,7 @@ public class CRAMFileWriterWithIndexTest {
     }
 
     @BeforeTest
-    public void beforeTest() throws Exception {
-        Log.setGlobalLogLevel(Log.LogLevel.ERROR);
-
+    public void beforeTest() {
         header = new SAMFileHeader();
         header.setSortOrder(SAMFileHeader.SortOrder.coordinate);
         SAMReadGroupRecord readGroupRecord = new SAMReadGroupRecord("1");
@@ -172,7 +173,8 @@ public class CRAMFileWriterWithIndexTest {
         ByteArrayOutputStream indexOS = new ByteArrayOutputStream();
         CRAMFileWriter writer = new CRAMFileWriter(os, indexOS, source, header, null);
 
-        int readPairsPerSequence = CRAMContainerStreamWriter.DEFAULT_RECORDS_PER_SLICE;
+        // use the defaults
+        int readPairsPerSequence = new CRAMEncodingStrategy().getReadsPerSlice();
 
         for (SAMSequenceRecord sequenceRecord : header.getSequenceDictionary().getSequences()) {
             int alignmentStart = 1;
@@ -199,7 +201,6 @@ public class CRAMFileWriterWithIndexTest {
         String name = String.valueOf(header.getSequenceDictionary().size() + 1);
         header.addSequence(new SAMSequenceRecord(name, length));
         byte[] refBases = new byte[length];
-        Random random = new Random();
         byte[] alphabet = "ACGTN".getBytes();
         for (int i = 0; i < refBases.length; i++)
             refBases[i] = alphabet[random.nextInt(alphabet.length)];

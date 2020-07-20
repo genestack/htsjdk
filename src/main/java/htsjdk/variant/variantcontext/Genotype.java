@@ -28,6 +28,7 @@ package htsjdk.variant.variantcontext;
 
 import htsjdk.tribble.util.ParsingUtils;
 import htsjdk.variant.vcf.VCFConstants;
+import htsjdk.variant.vcf.VCFUtils;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -197,31 +198,33 @@ public abstract class Genotype implements Comparable<Genotype>, Serializable {
     protected GenotypeType determineType() {
         // TODO -- this code is slow and could be optimized for the diploid case
         final List<Allele> alleles = getAlleles();
-        if ( alleles.isEmpty() )
+        if ( alleles.isEmpty() ) {
             return GenotypeType.UNAVAILABLE;
+        }
 
         boolean sawNoCall = false, sawMultipleAlleles = false;
-        Allele observedAllele = null;
+        Allele firstCallAllele = null;
 
-        for ( final Allele allele : alleles ) {
-            if ( allele.isNoCall() )
+        for ( int i = 0; i < alleles.size(); i++ ) {
+            final Allele allele = alleles.get(i);
+            if ( allele.isNoCall() ) {
                 sawNoCall = true;
-            else if ( observedAllele == null )
-                observedAllele = allele;
-            else if ( !allele.equals(observedAllele) )
+            } else if ( firstCallAllele == null ) {
+                firstCallAllele = allele;
+            } else if ( !allele.equals(firstCallAllele) )
                 sawMultipleAlleles = true;
         }
 
         if ( sawNoCall ) {
-            if ( observedAllele == null )
+            if ( firstCallAllele == null )
                 return GenotypeType.NO_CALL;
             return GenotypeType.MIXED;
         }
 
-        if ( observedAllele == null )
+        if ( firstCallAllele == null )
             throw new IllegalStateException("BUG: there are no alleles present in this genotype but the alleles list is not null");
 
-        return sawMultipleAlleles ? GenotypeType.HET : observedAllele.isReference() ? GenotypeType.HOM_REF : GenotypeType.HOM_VAR;
+        return sawMultipleAlleles ? GenotypeType.HET : firstCallAllele.isReference() ? GenotypeType.HOM_REF : GenotypeType.HOM_VAR;
     }
 
     /**
@@ -516,7 +519,7 @@ public abstract class Genotype implements Comparable<Genotype>, Serializable {
         Object x = getExtendedAttribute(key);
         if ( x == null || x == VCFConstants.MISSING_VALUE_v4 ) return defaultValue;
         if ( x instanceof Integer ) return (Integer)x;
-        return Integer.valueOf((String)x); // throws an exception if this isn't a string
+        return Integer.parseInt((String)x); // throws an exception if this isn't a string
     }
 
     @Deprecated
@@ -524,7 +527,7 @@ public abstract class Genotype implements Comparable<Genotype>, Serializable {
         Object x = getExtendedAttribute(key);
         if ( x == null ) return defaultValue;
         if ( x instanceof Double ) return (Double)x;
-        return Double.valueOf((String)x); // throws an exception if this isn't a string
+        return VCFUtils.parseVcfDouble((String) x); // throws an exception if this isn't a string
     }
 
     /**

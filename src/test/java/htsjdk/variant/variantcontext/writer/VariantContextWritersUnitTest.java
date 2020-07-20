@@ -30,6 +30,7 @@ package htsjdk.variant.variantcontext.writer;
 
 
 import htsjdk.samtools.SAMSequenceDictionary;
+import htsjdk.samtools.util.FileExtensions;
 import htsjdk.variant.VariantBaseTest;
 import htsjdk.variant.bcf2.BCF2Codec;
 import htsjdk.variant.variantcontext.VariantContext;
@@ -127,7 +128,7 @@ public class VariantContextWritersUnitTest extends VariantBaseTest {
     private class VCFIOTester extends VariantContextTestProvider.VariantContextIOTest<VCFCodec> {
         @Override
         public String getExtension() {
-            return ".vcf";
+            return FileExtensions.VCF;
         }
 
         @Override

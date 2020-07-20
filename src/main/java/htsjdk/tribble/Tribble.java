@@ -23,10 +23,12 @@
  */
 package htsjdk.tribble;
 
+import htsjdk.samtools.util.FileExtensions;
 import htsjdk.tribble.util.ParsingUtils;
 import htsjdk.tribble.util.TabixUtils;
 
 import java.io.File;
+import java.nio.file.Path;
 
 /**
  * Common, tribble wide constants and static functions
@@ -34,52 +36,76 @@ import java.io.File;
 public class Tribble {
     private Tribble() { } // can't be instantiated
 
-    public final static String STANDARD_INDEX_EXTENSION = ".idx";
+    /**
+     * @deprecated since June 2019 Use {@link FileExtensions#TRIBBLE_INDEX} instead.
+     */
+    @Deprecated
+    public final static String STANDARD_INDEX_EXTENSION = FileExtensions.TRIBBLE_INDEX;
 
     /**
-     * Return the name of the index file for the provided vcf {@code filename}
+     * Return the name of the index file for the provided {@code filename}
      * Does not actually create an index
-     * @param filename  name of the vcf file
+     * @param filename  name of the file
      * @return non-null String representing the index filename
      */
     public static String indexFile(final String filename) {
-        return indexFile(filename, STANDARD_INDEX_EXTENSION);
+        return indexFile(filename, FileExtensions.TRIBBLE_INDEX);
     }
 
     /**
-     * Return the File of the index file for the provided vcf {@code file}
+     * Return the File of the index file for the provided {@code file}
      * Does not actually create an index
-     * @param file  the vcf file
+     * @param file  the file
      * @return a non-null File representing the index
      */
     public static File indexFile(final File file) {
-        return indexFile(file.getAbsoluteFile(), STANDARD_INDEX_EXTENSION);
+        return indexFile(file.getAbsoluteFile(), FileExtensions.TRIBBLE_INDEX);
     }
 
     /**
-     * Return the name of the tabix index file for the provided vcf {@code filename}
+     * Return the name of the index file for the provided {@code path}
      * Does not actually create an index
-     * @param filename  name of the vcf file
+     * @param path the path
+     * @return Path representing the index filename
+     */
+    public static Path indexPath(final Path path) {
+        return path.getFileSystem().getPath(indexFile(path.toAbsolutePath().toString()));
+    }
+
+    /**
+     * Return the name of the tabix index file for the provided {@code filename}
+     * Does not actually create an index
+     * @param filename  name of the file
      * @return non-null String representing the index filename
      */
     public static String tabixIndexFile(final String filename) {
-        return indexFile(filename, TabixUtils.STANDARD_INDEX_EXTENSION);
+        return indexFile(filename, FileExtensions.TABIX_INDEX);
     }
 
     /**
-     * Return the File of the tabix index file for the provided vcf {@code file}
+     * Return the File of the tabix index file for the provided {@code file}
      * Does not actually create an index
-     * @param file  the vcf file
+     * @param file  the file
      * @return a non-null File representing the index
      */
     public static File tabixIndexFile(final File file) {
-        return indexFile(file.getAbsoluteFile(), TabixUtils.STANDARD_INDEX_EXTENSION);
+        return indexFile(file.getAbsoluteFile(), FileExtensions.TABIX_INDEX);
     }
 
     /**
-     * Return the name of the index file for the provided vcf {@code filename} and {@code extension}
+     * Return the name of the tabix index file for the provided {@code path}
      * Does not actually create an index
-     * @param filename  name of the vcf file
+     * @param path the path
+     * @return Path representing the index filename
+     */
+    public static Path tabixIndexPath(final Path path) {
+        return path.getFileSystem().getPath(tabixIndexFile(path.toAbsolutePath().toString()));
+    }
+
+    /**
+     * Return the name of the index file for the provided {@code filename} and {@code extension}
+     * Does not actually create an index
+     * @param filename  name of the file
      * @param extension the extension to use for the index
      * @return non-null String representing the index filename
      */
@@ -88,9 +114,9 @@ public class Tribble {
     }
 
     /**
-     * Return the File of the index file for the provided vcf {@code file} and {@code extension}
+     * Return the File of the index file for the provided {@code file} and {@code extension}
      * Does not actually create an index
-     * @param file  the vcf file
+     * @param file  the file
      * @param extension the extension to use for the index
      * @return a non-null File representing the index
      */

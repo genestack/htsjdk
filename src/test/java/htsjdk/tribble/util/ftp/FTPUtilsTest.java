@@ -1,5 +1,6 @@
 package htsjdk.tribble.util.ftp;
 
+import htsjdk.HtsjdkTest;
 import htsjdk.samtools.util.ftp.FTPUtils;
 import org.testng.annotations.Test;
 
@@ -12,9 +13,9 @@ import static org.testng.Assert.assertTrue;
 * @author Jim Robinson
 * @since 10/4/11
 */
-public class FTPUtilsTest {
+public class FTPUtilsTest extends HtsjdkTest {
 
-    @Test
+    @Test(groups ="ftp")
     public void testResourceAvailable() throws Exception {
 
         URL goodUrl = new URL("ftp://ftp.broadinstitute.org/pub/igv/TEST/test.txt");

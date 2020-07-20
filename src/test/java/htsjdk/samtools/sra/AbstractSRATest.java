@@ -1,5 +1,6 @@
 package htsjdk.samtools.sra;
 
+import htsjdk.HtsjdkTest;
 import htsjdk.samtools.SAMRecord;
 import htsjdk.samtools.SAMRecordIterator;
 import org.testng.Assert;
@@ -12,26 +13,26 @@ import java.lang.reflect.Method;
 import java.util.NoSuchElementException;
 
 @Test(groups = "sra")
-public abstract class AbstractSRATest {
+public abstract class AbstractSRATest extends HtsjdkTest {
     private static boolean canResolveNetworkAccession = false;
     private static String checkAccession = "SRR000123";
 
     @BeforeGroups(groups = "sra")
     public final void checkIfCanResolve() {
-        if (!SRAAccession.isSupported()) {
+        if (SRAAccession.checkIfInitialized() != null) {
             return;
         }
         canResolveNetworkAccession = SRAAccession.isValid(checkAccession);
     }
 
-    @BeforeMethod
+    @BeforeMethod(groups = "sra")
     public final void assertSRAIsSupported() {
-        if(!SRAAccession.isSupported()){
+        if(SRAAccession.checkIfInitialized() != null){
             throw new SkipException("Skipping SRA Test because SRA native code is unavailable.");
         }
     }
 
-    @BeforeMethod
+    @BeforeMethod(groups = "sra")
     public final void skipIfCantResolve(Method method, Object[] params) {
         String accession = null;
 

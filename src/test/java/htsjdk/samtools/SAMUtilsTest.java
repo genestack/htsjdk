@@ -23,12 +23,17 @@
  */
 package htsjdk.samtools;
 
+import htsjdk.HtsjdkTest;
 import org.testng.Assert;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 
-public class SAMUtilsTest {
+public class SAMUtilsTest extends HtsjdkTest {
     @Test
     public void testCompareMapqs() {
         Assert.assertEquals(SAMUtils.compareMapqs(0, 0), 0);
@@ -201,7 +206,7 @@ public class SAMUtilsTest {
         Assert.assertEquals(SAMUtils.getOtherCanonicalAlignments(record).size(),0);
 
 
-        record.setAttribute(SAMTagUtil.getSingleton().SA,
+        record.setAttribute(SAMTag.SA.getBinaryTag(),
                 "2,500,+,3S2=1X2=2S,60,1;" +
                 "1,191,-,8M2S,60,*;");
 
@@ -230,7 +235,7 @@ public class SAMUtilsTest {
         Assert.assertEquals(other.getAlignmentStart(),500);
         Assert.assertFalse(other.getReadNegativeStrandFlag());
         Assert.assertEquals(other.getMappingQuality(), 60);
-        Assert.assertEquals(other.getAttribute(SAMTagUtil.getSingleton().NM),1);
+        Assert.assertEquals(other.getAttribute(SAMTag.NM.getBinaryTag()),1);
         Assert.assertEquals(other.getCigarString(),"3S2=1X2=2S");
         Assert.assertEquals(other.getInferredInsertSize(),0);
 
@@ -241,10 +246,86 @@ public class SAMUtilsTest {
         Assert.assertEquals(other.getAlignmentStart(),191);
         Assert.assertTrue(other.getReadNegativeStrandFlag());
         Assert.assertEquals(other.getMappingQuality(), 60);
-        Assert.assertEquals(other.getAttribute(SAMTagUtil.getSingleton().NM),null);
+        Assert.assertEquals(other.getAttribute(SAMTag.NM.getBinaryTag()),null);
         Assert.assertEquals(other.getCigarString(),"8M2S");
         Assert.assertEquals(other.getInferredInsertSize(),-91);//100(mate) - 191(other)
+    }
+
+    @Test()
+    public void testBytesToCompressedBases() {
+        final byte[] bases = new byte[]{'=', 'a', 'A', 'c', 'C', 'g', 'G', 't', 'T', 'n', 'N', '.', 'M', 'm',
+                'R', 'r', 'S', 's', 'V', 'v', 'W', 'w', 'Y', 'y', 'H', 'h', 'K', 'k', 'D', 'd', 'B', 'b'};
+        final byte[] compressedBases = SAMUtils.bytesToCompressedBases(bases);
+        String expectedCompressedBases = "[1, 18, 36, 72, -113, -1, 51, 85, 102, 119, -103, -86, -69, -52, -35, -18]";
+        Assert.assertEquals(Arrays.toString(compressedBases), expectedCompressedBases);
+    }
+
+    @DataProvider
+    public Object[][] testBadBase() {
+        return new Object[][]{
+                {new byte[]{'>', 'A'}, '>'},
+                {new byte[]{'A', '>'} , '>'}
+        };
+    }
+
+    @Test(dataProvider = "testBadBase", expectedExceptions = IllegalArgumentException.class)
+    public void testBytesToCompressedBasesException(final byte[] bases, final char failingBase) {
+        try {
+            SAMUtils.bytesToCompressedBases(bases);
+        } catch ( final IllegalArgumentException ex ) {
+            Assert.assertTrue(ex.getMessage().contains(Character.toString(failingBase)));
+            throw ex;
+        }
+    }
+
+    @Test
+    public void testCompressedBasesToBytes() {
+        final byte[] compressedBases = new byte[]{1, 18, 36, 72, -113, -1, 51, 85, 102, 119, -103, -86, -69, -52, -35, -18};
+        final byte[] bytes = SAMUtils.compressedBasesToBytes(2*compressedBases.length, compressedBases, 0);
+        final byte[] expectedBases = new byte[]{'=', 'A', 'A', 'C', 'C', 'G', 'G', 'T', 'T', 'N', 'N', 'N', 'M', 'M',
+                'R', 'R', 'S', 'S', 'V', 'V', 'W', 'W', 'Y', 'Y', 'H', 'H', 'K', 'K', 'D', 'D', 'B', 'B'};
+        Assert.assertEquals(new String(bytes), new String(expectedBases));
+    }
+
+
+    @DataProvider()
+    public Iterator<Object[]> getOAValues(){
+        final SAMRecordSetBuilder builder = new SAMRecordSetBuilder();
+        final List<Object[]> tests = new ArrayList<>();
+
+        {
+            final SAMRecord record = builder.addFrag("test1", 0, 15, false, false, "36M", null, 45);
+
+            tests.add(new Object[]{record, "chr1,15,+,36M,255,"});
+        }
+        {
+            final SAMRecord record = builder.addFrag("test2", 0, 15, true, true, "36M", null, 45);
+            record.setMappingQuality(60);
+            // builder ignores this request....
+            record.setReadNegativeStrandFlag(true);
+            tests.add(new Object[]{record, "*,0,-,*,60,"});
+        }
+        {
+            final SAMRecord record = builder.addFrag("test3", 2, 15, false, false, "36M", null, 45);
+            record.setAttribute(SAMTag.NM.name(),33);
+
+            tests.add(new Object[]{record, "chr3,15,+,36M,255,33"});
+        }
+        {
+            final SAMRecord record = builder.addFrag("test4", 1, 115, true, false, "12S12M12I", null, 45);
+            record.setAttribute(SAMTag.NM.name(),0);
+            record.setMappingQuality(60);
+
+            tests.add(new Object[]{record, "chr2,115,-,12S12M12I,60,0"});
+        }
+
+        return tests.iterator();
 
     }
 
+
+    @Test(dataProvider = "getOAValues")
+    public void testOAValues(final SAMRecord record, final String expectedOA){
+        Assert.assertEquals(SAMUtils.calculateOATagValue(record), expectedOA);
+    }
 }

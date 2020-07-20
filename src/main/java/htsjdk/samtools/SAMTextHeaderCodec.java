@@ -23,10 +23,13 @@
  */
 package htsjdk.samtools;
 
+import htsjdk.samtools.SAMFileHeader.SortOrder;
+import htsjdk.samtools.SAMValidationError.Type;
 import htsjdk.samtools.util.DateParser;
 import htsjdk.samtools.util.LineReader;
 import htsjdk.samtools.util.RuntimeIOException;
 import htsjdk.samtools.util.StringUtil;
+import htsjdk.samtools.util.Log;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -53,14 +56,12 @@ public class SAMTextHeaderCodec {
     private String mSource;
     private List<SAMSequenceRecord> sequences;
     private List<SAMReadGroupRecord> readGroups;
-    // Accumulate header while reading it from input.
-    private final StringBuilder textHeader = new StringBuilder();
 
     // For error reporting when parsing
     private ValidationStringency validationStringency = ValidationStringency.SILENT;
 
     // These attributes are populated when generating text
-    private BufferedWriter writer;
+    private Writer writer;
 
     private static final String TAG_KEY_VALUE_SEPARATOR = ":";
     private static final char TAG_KEY_VALUE_SEPARATOR_CHAR = ':';
@@ -69,6 +70,15 @@ public class SAMTextHeaderCodec {
     private static final Pattern FIELD_SEPARATOR_RE = Pattern.compile(FIELD_SEPARATOR);
 
     public static final String COMMENT_PREFIX = HEADER_LINE_START + HeaderRecordType.CO.name() + FIELD_SEPARATOR;
+    private static final Log log = Log.getInstance(SAMTextHeaderCodec.class);
+
+    void setWriter(final Writer writer) {
+        this.writer = writer;
+    }
+
+    void setmFileHeader(final SAMFileHeader header) {
+        this.mFileHeader = header;
+    }
 
     /**
      * Reads text SAM header and converts to a SAMFileHeader object.
@@ -80,8 +90,8 @@ public class SAMTextHeaderCodec {
         mFileHeader = new SAMFileHeader();
         mReader = reader;
         mSource = source;
-        sequences = new ArrayList<SAMSequenceRecord>();
-        readGroups = new ArrayList<SAMReadGroupRecord>();
+        sequences = new ArrayList<>();
+        readGroups = new ArrayList<>();
 
         while (advanceLine() != null) {
             final ParsedHeaderLine parsedHeaderLine = new ParsedHeaderLine(mCurrentLine);
@@ -113,23 +123,14 @@ public class SAMTextHeaderCodec {
         mFileHeader.setSequenceDictionary(new SAMSequenceDictionary(sequences));
         mFileHeader.setReadGroups(readGroups);
 
-        // Only store the header text if there was a parsing error or the it's less than 1MB on disk / 2MB in mem
-        if (!mFileHeader.getValidationErrors().isEmpty() || textHeader.length() < (1024 * 1024)) {
-            mFileHeader.setTextHeader(textHeader.toString());
-        }
-
         SAMUtils.processValidationErrors(mFileHeader.getValidationErrors(), -1, validationStringency);
         return mFileHeader;
     }
 
     private String advanceLine() {
         final int nextChar = mReader.peek();
-        if (nextChar != '@') {
-            return null;
-        }
-        mCurrentLine = mReader.readLine();
-        textHeader.append(mCurrentLine).append('\n');
-        return mCurrentLine;
+        this.mCurrentLine = (nextChar == '@') ? mReader.readLine() : null;
+        return this.mCurrentLine;
     }
 
     /**
@@ -220,6 +221,25 @@ public class SAMTextHeaderCodec {
         if (!parsedHeaderLine.requireTag(SAMFileHeader.VERSION_TAG)) {
             return;
         }
+
+        final String soString = parsedHeaderLine.getValue(SAMFileHeader.SORT_ORDER_TAG);
+        try {
+            if (soString != null) SortOrder.valueOf(soString);
+        } catch (IllegalArgumentException e) {
+            reportErrorParsingLine(HEADER_LINE_START + parsedHeaderLine.getHeaderRecordType() +
+                            " line has non-conforming SO tag value: " + soString + ".",
+                    SAMValidationError.Type.HEADER_TAG_NON_CONFORMING_VALUE, null);
+        }
+
+        final String goString = parsedHeaderLine.getValue(SAMFileHeader.GROUP_ORDER_TAG);
+        try {
+            if (goString != null) SAMFileHeader.GroupOrder.valueOf(goString);
+        } catch (IllegalArgumentException e) {
+            reportErrorParsingLine(HEADER_LINE_START + parsedHeaderLine.getHeaderRecordType() +
+                            " line has non-conforming GO tag value: "+ goString + ".",
+                    SAMValidationError.Type.HEADER_TAG_NON_CONFORMING_VALUE, null);
+        }
+
         transferAttributes(mFileHeader, parsedHeaderLine.mKeyValuePairs);
     }
 
@@ -296,9 +316,28 @@ public class SAMTextHeaderCodec {
                             SAMValidationError.Type.HEADER_TAG_MULTIPLY_DEFINED, null);
                     continue;
                 }
+                validateSortOrderValue(keyAndValue);
                 mKeyValuePairs.put(keyAndValue[0], keyAndValue[1]);
             }
             lineValid = true;
+        }
+
+        private void validateSortOrderValue(String[] value) {
+            if (SAMFileHeader.SORT_ORDER_TAG.equals(value[0])) {
+                try {
+                    SortOrder.valueOf(value[1]);
+                } catch (IllegalArgumentException e) {
+                    if (validationStringency == ValidationStringency.STRICT) {
+                        throw new SAMFormatException("Found non-conforming header SO tag: "
+                                                     + value[1]
+                                                     + ", exiting because VALIDATION_STRINGENCY=STRICT");
+                    } else if (validationStringency == ValidationStringency.LENIENT) {
+                        log.warn("Found non-conforming header SO tag: "
+                                 + value[1] + ". Treating as 'unknown'.");
+                    }
+                    value[1] = SortOrder.unknown.toString();
+                }
+            }
         }
 
         /**
@@ -387,6 +426,30 @@ public class SAMTextHeaderCodec {
         }
     }
 
+    /**
+     * Encode {@link SAMSequenceRecord}.
+     * Designed for using in {@link SAMSequenceDictionaryCodec}, allows to implement recording on the fly.
+     * @throws IllegalStateException, if writer is null.
+     */
+    void encodeSequenceRecord(final SAMSequenceRecord sequenceRecord) {
+        if (writer == null) {
+            throw new IllegalStateException("writer couldn't be null");
+        }
+        writeSQLine(sequenceRecord);
+    }
+
+    /**
+     * Encode HD line.
+     * Designed for using in {@link SAMSequenceDictionaryCodec}, allows to implement recording on the fly.
+     * @throws IllegalStateException, if writer is null.
+     */
+    void encodeHeaderLine(final boolean keepExistingVersionNumber) {
+        if (writer == null) {
+            throw new IllegalStateException("writer couldn't be null");
+        }
+        writeHDLine(keepExistingVersionNumber);
+    }
+
     private void println(final String s) {
         try {
             writer.append(s);
@@ -397,22 +460,27 @@ public class SAMTextHeaderCodec {
     }
 
     private void writePGLine(final SAMProgramRecord programRecord) {
-        if (programRecord == null) {
-            return;
-        }
+        println(getPGLine(programRecord));
+    }
+
+    protected String getPGLine(final SAMProgramRecord programRecord) {
         final String[] fields = new String[2 + programRecord.getAttributes().size()];
         fields[0] = HEADER_LINE_START + HeaderRecordType.PG;
         fields[1] = SAMProgramRecord.PROGRAM_GROUP_ID_TAG + TAG_KEY_VALUE_SEPARATOR + programRecord.getProgramGroupId();
         encodeTags(programRecord, fields, 2);
-        println(StringUtil.join(FIELD_SEPARATOR, fields));
+        return StringUtil.join(FIELD_SEPARATOR, fields);
     }
 
     private void writeRGLine(final SAMReadGroupRecord readGroup) {
-        final String[] fields = new String[2 + readGroup.getAttributes().size()];
-        fields[0] = HEADER_LINE_START + HeaderRecordType.RG;
-        fields[1] = SAMReadGroupRecord.READ_GROUP_ID_TAG + TAG_KEY_VALUE_SEPARATOR + readGroup.getReadGroupId();
-        encodeTags(readGroup, fields, 2);
-        println(StringUtil.join(FIELD_SEPARATOR, fields));
+        println(getRGLine(readGroup));
+    }
+
+    protected String getRGLine(final SAMReadGroupRecord readGroup) {
+      final String[] fields = new String[2 + readGroup.getAttributes().size()];
+      fields[0] = HEADER_LINE_START + HeaderRecordType.RG;
+      fields[1] = SAMReadGroupRecord.READ_GROUP_ID_TAG + TAG_KEY_VALUE_SEPARATOR + readGroup.getReadGroupId();
+      encodeTags(readGroup, fields, 2);
+      return StringUtil.join(FIELD_SEPARATOR, fields);
     }
 
     private void writeHDLine(final boolean keepExistingVersionNumber) {
@@ -438,13 +506,17 @@ public class SAMTextHeaderCodec {
     }
 
     private void writeSQLine(final SAMSequenceRecord sequenceRecord) {
-        final int numAttributes =sequenceRecord.getAttributes() != null ? sequenceRecord.getAttributes().size() : 0;
+        println(getSQLine(sequenceRecord));
+    }
+
+    protected String getSQLine(final SAMSequenceRecord sequenceRecord) {
+        final int numAttributes = sequenceRecord.getAttributes() != null ? sequenceRecord.getAttributes().size() : 0;
         final String[] fields = new String[3 + numAttributes];
         fields[0] = HEADER_LINE_START + HeaderRecordType.SQ;
         fields[1] = SAMSequenceRecord.SEQUENCE_NAME_TAG + TAG_KEY_VALUE_SEPARATOR + sequenceRecord.getSequenceName();
         fields[2] = SAMSequenceRecord.SEQUENCE_LENGTH_TAG + TAG_KEY_VALUE_SEPARATOR + Integer.toString(sequenceRecord.getSequenceLength());
         encodeTags(sequenceRecord, fields, 3);
-        println(StringUtil.join(FIELD_SEPARATOR, fields));
+        return StringUtil.join(FIELD_SEPARATOR, fields);
     }
 
     /**

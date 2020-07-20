@@ -1,14 +1,10 @@
 package htsjdk.samtools;
 
+import htsjdk.HtsjdkTest;
 import htsjdk.samtools.cram.ref.ReferenceSource;
 import htsjdk.samtools.reference.InMemoryReferenceSequenceFile;
-import htsjdk.samtools.seekablestream.SeekableMemoryStream;
 import htsjdk.samtools.util.CloseableIterator;
-import htsjdk.samtools.util.Log;
-import htsjdk.samtools.util.Log.LogLevel;
-import htsjdk.samtools.util.RuntimeIOException;
 import org.testng.Assert;
-import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import java.io.ByteArrayInputStream;
@@ -17,21 +13,15 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-public class CRAMContainerStreamWriterTest {
-
-    @BeforeClass
-    public void initClass() {
-        Log.setGlobalLogLevel(LogLevel.ERROR);
-    }
+public class CRAMContainerStreamWriterTest extends HtsjdkTest {
 
     private List<SAMRecord> createRecords(int count) {
-        final List<SAMRecord> list = new ArrayList<SAMRecord>(count);
+        final List<SAMRecord> list = new ArrayList<>(count);
         final SAMRecordSetBuilder builder = new SAMRecordSetBuilder();
         if (builder.getHeader().getReadGroups().isEmpty()) {
             throw new IllegalStateException("Read group expected in the header");
@@ -72,8 +62,21 @@ public class CRAMContainerStreamWriterTest {
         final ReferenceSource refSource = createReferenceSource();
 
         final CRAMContainerStreamWriter containerStream = new CRAMContainerStreamWriter(outStream, indexStream, refSource, header, "test");
-        containerStream.writeHeader(header);
+        containerStream.writeHeader();
 
+        writeThenReadRecords(samRecords, outStream, refSource, containerStream);
+    }
+
+    private void doTestWithIndexer(final List<SAMRecord> samRecords, final ByteArrayOutputStream outStream, final SAMFileHeader header, final CRAMIndexer indexer) {
+        final ReferenceSource refSource = createReferenceSource();
+
+        final CRAMContainerStreamWriter containerStream = new CRAMContainerStreamWriter(outStream, refSource, header, "test", indexer);
+        containerStream.writeHeader();
+
+        writeThenReadRecords(samRecords, outStream, refSource, containerStream);
+    }
+
+    private void writeThenReadRecords(List<SAMRecord> samRecords, ByteArrayOutputStream outStream, ReferenceSource refSource, CRAMContainerStreamWriter containerStream) {
         for (SAMRecord record : samRecords) {
             containerStream.writeAlignment(record);
         }
@@ -84,7 +87,7 @@ public class CRAMContainerStreamWriterTest {
         final SAMRecordIterator iterator = cReader.getIterator();
         int count = 0;
         while (iterator.hasNext()) {
-            SAMRecord actualRecord = iterator.next();
+            iterator.next();
             count++;
         }
         Assert.assertEquals(count, samRecords.size());
@@ -126,7 +129,7 @@ public class CRAMContainerStreamWriterTest {
         // time with a CRAM and SAM header at the front and an EOF container at the end
         final ByteArrayOutputStream aggregateStream = new ByteArrayOutputStream();
         final CRAMContainerStreamWriter aggregateContainerStreamWriter = new CRAMContainerStreamWriter(aggregateStream, null, refSource, header, "test");
-        aggregateContainerStreamWriter .writeHeader(header); // write out one CRAM and SAM header
+        aggregateContainerStreamWriter.writeHeader(); // write out one CRAM and SAM header
         for (int j = 0; j < nPartitions; j++) {
             byteStreamArray.get(j).writeTo(aggregateStream);
         }
@@ -143,15 +146,32 @@ public class CRAMContainerStreamWriterTest {
         Assert.assertEquals(count, nRecs);
     }
 
-    @Test(description = "Test CRAMContainerStream with index")
-    public void testCRAMContainerStreamWithIndex() throws IOException {
+    @Test(description = "Test CRAMContainerStream with bai index")
+    public void testCRAMContainerStreamWithBaiIndex() throws IOException {
         final List<SAMRecord> samRecords = createRecords(100);
-        final ByteArrayOutputStream outStream = new ByteArrayOutputStream();
-        final ByteArrayOutputStream indexStream = new ByteArrayOutputStream();
-        doTest(samRecords, outStream, indexStream);
-        outStream.close();
-        indexStream.close();
+        try (ByteArrayOutputStream outStream = new ByteArrayOutputStream();
+             ByteArrayOutputStream indexStream = new ByteArrayOutputStream()) {
+            doTest(samRecords, outStream, indexStream);
+            outStream.flush();
+            indexStream.flush();
+            checkCRAMContainerStream(outStream, indexStream, ".bai");
+        }
+    }
 
+    @Test(description = "Test CRAMContainerStream with crai index")
+    public void testCRAMContainerStreamWithCraiIndex() throws IOException {
+        final List<SAMRecord> samRecords = createRecords(100);
+        final SAMFileHeader header = createSAMHeader(SAMFileHeader.SortOrder.coordinate);
+        try (ByteArrayOutputStream outStream = new ByteArrayOutputStream();
+             ByteArrayOutputStream indexStream = new ByteArrayOutputStream()) {
+            doTestWithIndexer(samRecords, outStream, header, new CRAMCRAIIndexer(indexStream, header));
+            outStream.flush();
+            indexStream.flush();
+            checkCRAMContainerStream(outStream, indexStream, ".crai");
+        }
+    }
+
+    private void checkCRAMContainerStream(ByteArrayOutputStream outStream, ByteArrayOutputStream indexStream, String indexExtension) throws IOException {
         // write the file out
         final File cramTempFile = File.createTempFile("cramContainerStreamTest", ".cram");
         cramTempFile.deleteOnExit();
@@ -160,7 +180,7 @@ public class CRAMContainerStreamWriterTest {
         cramFileStream.close();
 
         // write the index out
-        final File indexTempFile = File.createTempFile("cramContainerStreamTest", ".bai");
+        final File indexTempFile = File.createTempFile("cramContainerStreamTest", indexExtension);
         indexTempFile.deleteOnExit();
         OutputStream indexFileStream = new FileOutputStream(indexTempFile);
         indexFileStream.write(indexStream.toByteArray());
@@ -175,7 +195,7 @@ public class CRAMContainerStreamWriterTest {
         final CloseableIterator<SAMRecord> iterator = reader.query(new QueryInterval[]{new QueryInterval(1, 10, 10)}, false);
         int count = 0;
         while (iterator.hasNext()) {
-            SAMRecord actualRecord = iterator.next();
+            iterator.next();
             count++;
         }
         Assert.assertEquals(count, 2);
